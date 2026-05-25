@@ -1,0 +1,42 @@
+bundle:
+  name: bimbo-bakery-pipeline
+  uuid: 8a3e1d2a-bimbo-demo-cicd-quality-gate
+
+include:
+  - resources/**/*.yml
+
+variables:
+  catalog:
+    description: Catálogo Unity Catalog destino, parametrizado por target.
+  schema:
+    description: Schema dentro del catálogo (p. ej. dev/qa/prod).
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
+    variables:
+      catalog: bimbo_demo
+      schema: dev
+
+  qa:
+    mode: production
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
+    variables:
+      catalog: bimbo_demo
+      schema: qa
+    run_as:
+      user_name: malcoln.dandaro@databricks.com   # En Bimbo: SP sp-bimbops-bakery-qa
+
+  prd:
+    mode: production
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
+    variables:
+      catalog: bimbo_demo
+      schema: prod
+    run_as:
+      user_name: malcoln.dandaro@databricks.com   # En Bimbo: SP sp-bimbops-bakery-prd

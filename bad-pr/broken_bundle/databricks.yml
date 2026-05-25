@@ -1,0 +1,20 @@
+# Bundle DELIBERADAMENTE INVÁLIDO para la demo.
+# `databricks bundle validate -t dev` debe fallar.
+
+bundle:
+  name: bad-example
+
+include:
+  - resources/**/*.yml
+
+variables:
+  catalog:
+    description: catálogo
+
+targets:
+  dev:
+    mode: development
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
+    variables:
+      catalog: ${var.catalogo}   # ← referencia a variable que no existe (typo)

@@ -1,0 +1,70 @@
+name: pr-quality-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write   # para OIDC federation con Databricks (gated abajo)
+
+jobs:
+
+  # ── Ruff: lint Python ──────────────────────────────────────────────────────
+  ruff:
+    name: Ruff (Python lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Ruff
+        run: pip install ruff==0.6.9
+      - name: Lint
+        run: ruff check src/
+      - name: Format check
+        run: ruff format --check src/
+
+  # ── sqlfluff: lint SQL ─────────────────────────────────────────────────────
+  sqlfluff:
+    name: sqlfluff (SQL lint, dialect=databricks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install sqlfluff
+        run: pip install "sqlfluff==3.2.5"
+      - name: Lint SQL
+        run: sqlfluff lint sql/
+
+  # ── databricks bundle validate ─────────────────────────────────────────────
+  # Solo corre si las variables DATABRICKS_HOST / DATABRICKS_SP_CLIENT_ID
+  # están configuradas en el repo. Auth real es vía OIDC Workload Identity
+  # Federation — sin client_secret.
+  #
+  # Para habilitar:
+  #   gh variable set DATABRICKS_HOST -b "https://<workspace>"
+  #   gh variable set DATABRICKS_SP_CLIENT_ID -b "<sp-client-id>"
+  # Y registrar federation policy en Databricks (ver auth_oidc_for_ci.md).
+  bundle-validate:
+    name: databricks bundle validate
+    runs-on: ubuntu-latest
+    if: vars.DATABRICKS_HOST != ''
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Validate bundle (dev target)
+        run: databricks bundle validate -t dev
+      - name: Validate bundle (qa target)
+        run: databricks bundle validate -t qa
+      - name: Validate bundle (prd target)
+        run: databricks bundle validate -t prd

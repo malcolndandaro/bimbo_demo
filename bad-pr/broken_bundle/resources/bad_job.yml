@@ -1,0 +1,11 @@
+resources:
+  jobs:
+    broken_job:
+      name: "Job que referencia un notebook inexistente"
+      tasks:
+        - task_key: missing_notebook
+          notebook_task:
+            notebook_path: ./notebook_que_no_existe.py
+          new_cluster:
+            spark_version: "no.es.una.version.real"
+            num_workers: -1

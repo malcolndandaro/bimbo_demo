@@ -1,0 +1,91 @@
+# Equivalente directo en Azure DevOps Pipelines para el quality gate.
+# Mismo shape que `.github/workflows/pr-checks.yml`, ajustado a la sintaxis ADO.
+#
+# Esto es lo que Bimbo debería implementar como `azure-pipelines.yml` en sus
+# repos de proyecto. Auth real va vía OIDC federation — ver
+# ../../../02-auth-recommended/auth_oidc_for_ci.md, sección "Azure DevOps".
+
+trigger:
+  branches:
+    include: [main]
+
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+
+  # ── Stage 1: Lint Python ────────────────────────────────────────────────────
+  - stage: ruff
+    displayName: "Ruff (Python lint)"
+    jobs:
+      - job: lint
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+          - script: pip install ruff==0.6.9
+            displayName: "Install Ruff"
+          - script: ruff check src/
+            displayName: "Lint"
+          - script: ruff format --check src/
+            displayName: "Format check"
+
+  # ── Stage 2: Lint SQL ───────────────────────────────────────────────────────
+  - stage: sqlfluff
+    displayName: "sqlfluff (SQL lint)"
+    dependsOn: []
+    jobs:
+      - job: lint_sql
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+          - script: pip install "sqlfluff==3.2.5"
+          - script: sqlfluff lint sql/
+
+  # ── Stage 3: Validate DABs ──────────────────────────────────────────────────
+  - stage: bundle_validate
+    displayName: "databricks bundle validate"
+    dependsOn: []
+    jobs:
+      - job: validate
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: 'sc-bimbops-dev'    # service connection con WIF
+              scriptType: bash
+              scriptLocation: inlineScript
+              addSpnToEnvironment: true              # expone idToken al script
+              inlineScript: |
+                # OIDC federation: ningún client_secret requerido
+                export DATABRICKS_HOST=$(DATABRICKS_HOST)
+                curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                databricks bundle validate -t dev
+                databricks bundle validate -t qa
+                databricks bundle validate -t prd
+
+  # ── Stage 4: Unit tests ─────────────────────────────────────────────────────
+  - stage: unit_tests
+    displayName: "Unit tests (local Spark)"
+    dependsOn: []
+    jobs:
+      - job: pytest
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+          - task: JavaToolInstaller@0
+            inputs:
+              versionSpec: "17"
+              jdkArchitectureOption: x64
+              jdkSourceOption: PreInstalled
+          - script: pip install -e "../01-transform-pattern[test]"
+          - script: pytest -v ../01-transform-pattern/tests/
+
+  # ── Stage 5: Branch policy — required status checks ────────────────────────
+  # Configurar en Azure DevOps Project Settings → Repositories → main →
+  # Branch policies → Build validation → require todos los stages anteriores.
