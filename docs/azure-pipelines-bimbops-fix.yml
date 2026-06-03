@@ -1,0 +1,71 @@
+# Equivalente en Azure DevOps de `.github/workflows/bimbops-fix.yml`.
+# Trigger HUMANO: el bot reescribe el/los archivo(s) en conflicto con el agente y
+# hace push a la RAMA DEL PR (nunca a main). El nuevo commit re-dispara el review.
+#
+# GitHub usa dos triggers: `issue_comment` (/bimbops-fix) y `workflow_dispatch`.
+# Azure DevOps NO tiene trigger nativo de "comentario en PR". Dos opciones:
+#   1) PRIMARIO  → ejecución manual con el parámetro `pr` (= workflow_dispatch).
+#   2) PRODUCCIÓN→ Service Hook "Pull request commented on" → Azure Function relay
+#                  que encola este pipeline cuando el comentario contiene
+#                  "/bimbops-fix" (la Function reemplaza el `if: contains(...)`).
+# Ver `ado-translation.md` (mismo directorio), sección "El gap del trigger por comentario".
+
+parameters:
+  - name: pr
+    displayName: "PR a corregir (número)"
+    type: string
+    # ADO NO obliga a un valor no vacío (a diferencia de `required: true` en GHA).
+    # El relay / la ejecución manual DEBE pasar un número de PR no vacío — el GET
+    # de REST de abajo daría 404 con un valor vacío. Validar en la Function relay.
+
+trigger: none
+pr: none
+
+pool:
+  name: 'Bimbo-OnPrem'
+
+variables:
+  - group: bimbops-databricks
+
+steps:
+  - checkout: self
+    persistCredentials: true   # deja el OAuth token del build disponible para git
+
+  - bash: |
+      PR="${{ parameters.pr }}"
+      # rama head del PR vía REST API de Azure Repos (= gh pr view --json headRefName)
+      BRANCH=$(curl -sf -u ":$SYSTEM_ACCESSTOKEN" \
+        "$(System.CollectionUri)$(System.TeamProject)/_apis/git/repositories/$(Build.Repository.ID)/pullrequests/$PR?api-version=7.1" \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin)["sourceRefName"].replace("refs/heads/",""))')
+      echo "##vso[task.setvariable variable=HEAD_BRANCH]$BRANCH"
+      git fetch origin "$BRANCH" && git checkout "$BRANCH"
+    displayName: "Resolver rama head del PR"
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+  - script: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests mlflow || true
+    displayName: "Deps"
+
+  - script: python3 bimbops_reviewer/ci/fix_pr.py
+    displayName: "BimbOps Fix (push a la rama del PR)"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_SP_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+      ENDPOINT_NAME: bimbops-reviewer
+      PR_NUMBER: ${{ parameters.pr }}
+      ACTOR: $(Build.RequestedForEmail)
+      # IDENTIDAD DEL BOT (push): en GitHub es BIMBOPS_BOT_TOKEN (GitHub App en
+      # producción). En ADO el equivalente es una *service connection* con scope
+      # de código / o un PAT de service account con permiso "Contribute" SOLO a
+      # ramas de feature (nunca a main). El push va a:
+      #   https://<bot>:$(BIMBOPS_BOT_TOKEN)@dev.azure.com/<org>/<proj>/_git/<repo>
+      BOT_TOKEN: $(BIMBOPS_BOT_TOKEN)
+#
+# NOTA de portabilidad — los cores son agnósticos de plataforma:
+# is_authorized(), select_fixable(), extract_code(), validate_content() y
+# build_fix_prompt() son funciones puras. Lo único GitHub-específico en fix_pr.py
+# es (a) la autorización del actor (collaborator permission API) → en ADO es la
+# membresía del actor en el grupo del proyecto, y (b) la URL de push. La negativa
+# a operar sobre forks aplica igual (en ADO: PR desde un fork del repo).

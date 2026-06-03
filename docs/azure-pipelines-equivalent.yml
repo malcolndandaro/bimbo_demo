@@ -2,8 +2,15 @@
 # Mismo shape que `.github/workflows/pr-checks.yml`, ajustado a la sintaxis ADO.
 #
 # Esto es lo que Bimbo debería implementar como `azure-pipelines.yml` en sus
-# repos de proyecto. Auth real va vía OIDC federation — ver
-# ../../../02-auth-recommended/auth_oidc_for_ci.md, sección "Azure DevOps".
+# repos de proyecto. Auth real va vía OIDC federation — ver el mapa de auth en
+# `ado-translation.md` (mismo directorio) y el pendiente `docs/oidc-via-azure.md`.
+#
+# Parte de un set de 4 pipelines ADO. Mapa completo, identidad del bot y el gap
+# del trigger por comentario en `ado-translation.md` (mismo directorio):
+#   pr-checks     → este archivo
+#   bimbops-review→ azure-pipelines-bimbops-review.yml
+#   bimbops-fix   → azure-pipelines-bimbops-fix.yml
+#   deploy/promote→ azure-pipelines-deploy.yml
 
 trigger:
   branches:
@@ -53,6 +60,12 @@ stages:
     dependsOn: []
     jobs:
       - job: validate
+        # OJO: este stage toca el workspace de Databricks, que tiene IP ACL. Igual
+        # que el job `bundle-validate` de GitHub corre en `self-hosted`, aquí hay
+        # que forzar el pool self-hosted (no el `ubuntu-latest` hosted del top-level),
+        # porque un agente hosted tiene IP no allowlisted y sería rechazado.
+        pool:
+          name: 'Bimbo-OnPrem'
         steps:
           - task: AzureCLI@2
             inputs:
