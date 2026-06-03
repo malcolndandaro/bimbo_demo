@@ -1,0 +1,47 @@
+name: bimbops-review
+
+# Slice 03 (tracer): on every PR, ask the BimbOps Reviewer endpoint to review the
+# diff and post a summary comment. Advisory only — never blocks the merge.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write   # post the review comment via GITHUB_TOKEN
+
+jobs:
+  review:
+    name: BimbOps Reviewer
+    runs-on: ubuntu-latest
+    # Gated until the CI service principal is configured (vars set in slice 01).
+    if: vars.DATABRICKS_HOST != ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --quiet "databricks-sdk>=0.30" requests
+
+      - name: Fetch PR diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr diff "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" > /tmp/pr.diff || true
+
+      - name: BimbOps review
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          DATABRICKS_AUTH_TYPE: oauth-m2m
+          ENDPOINT_NAME: bimbops-reviewer
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DIFF_FILE: /tmp/pr.diff
+        run: python bimbops_reviewer/ci/review_pr.py
