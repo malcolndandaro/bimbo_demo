@@ -1,0 +1,41 @@
+name: deploy-dev
+
+# Post-merge: on push to main, deploy the bundle to bimbo_demo.dev and run the
+# serverless integration tests. A failing test fails this workflow and halts the
+# pipeline before any qa/prod promotion (slice 08 promotes only after this is green).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-test:
+    name: Deploy dev + serverless integration tests
+    # Self-hosted (MacBook): IP-allowlisted; hosted runners are rejected by the workspace IP ACL.
+    runs-on: self-hosted
+    if: vars.DATABRICKS_HOST != ''
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m   # OIDC is the documented target; blocked here (no account-admin)
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: databricks/setup-cli@main
+
+      - name: Deploy bundle to dev
+        run: databricks bundle deploy -t dev
+
+      - name: Serverless integration tests
+        # Isolated venv: databricks-connect bundles its own PySpark/protobuf and must
+        # not share site-packages with other tooling (snippet-05 gotcha).
+        run: |
+          python3 -m venv .venv-it
+          . .venv-it/bin/activate
+          pip install --quiet --disable-pip-version-check "databricks-connect>=15.4" "databricks-sdk>=0.30" pytest
+          pytest tests/ -v --tb=short
