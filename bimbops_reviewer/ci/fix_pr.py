@@ -33,7 +33,7 @@ ACTOR = os.environ.get("ACTOR", "")
 GH_TOKEN = os.environ.get("GH_TOKEN", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ENDPOINT = os.environ.get("ENDPOINT_NAME", "bimbops-reviewer")
-LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4-5")
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-opus-4-8")
 _GH = {"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
 
 
@@ -70,10 +70,30 @@ def get_findings(diff: str) -> list[dict]:
     return review_core.parse_review(text)["findings"]
 
 
-def fm_fix(path: str, original: str, findings: list[dict]) -> str | None:
+def retrieve_rules(query_text: str) -> list[dict]:
+    """Handbook rules for the fix prompt — mirrors the review agent's Vector Search
+    retrieval so the bot's fix follows the ACTUAL handbook, not just finding summaries.
+    Best-effort: a fix still proceeds (on the finding citations) if retrieval fails."""
+    cols = ["rule_id", "title", "content", "citation", "severity_hint"]
+    try:
+        from databricks.sdk import WorkspaceClient  # lazy
+
+        res = WorkspaceClient().vector_search_indexes.query_index(
+            index_name="bimbo_demo.dev.bimbops_handbook_rules_idx",
+            columns=cols,
+            query_text=(query_text[:2000] or "coding standards"),
+            num_results=8,
+        )
+        rows = (res.result.data_array if res.result else None) or []
+        return [dict(zip(cols, row, strict=False)) for row in rows]
+    except Exception as e:  # noqa: BLE001 — retrieval is best-effort
+        print(f"rule retrieval degraded: {type(e).__name__}: {e}")
+        return []
+
+
+def _fm_call(system: str, user: str) -> str | None:
     from mlflow.deployments import get_deploy_client  # lazy
 
-    system, user = review_core.build_fix_prompt(path, original, findings)
     resp = get_deploy_client("databricks").predict(
         endpoint=LLM_ENDPOINT,
         inputs={
@@ -82,10 +102,33 @@ def fm_fix(path: str, original: str, findings: list[dict]) -> str | None:
                 {"role": "user", "content": user},
             ],
             "max_tokens": 4000,
-            "temperature": 0.0,
+            # opus-4-8 rejects `temperature` (400) — manages sampling internally. Don't re-add.
         },
     )
     return review_core.extract_code(resp["choices"][0]["message"]["content"])
+
+
+def fm_fix(path: str, original: str, findings: list[dict], rules: list[dict]) -> str | None:
+    system, user = review_core.build_fix_prompt(path, original, findings, rules)
+    return _fm_call(system, user)
+
+
+def _run_linter(path: str) -> tuple[bool, str]:
+    """Run the deterministic linter guarding this file type ON THE FILE (uses the repo's
+    ruff/sqlfluff config). Returns (passed, combined_output). No linter → (True, "")."""
+    linter = review_core.linter_for(path)
+    if linter == "ruff":
+        cmd = ["ruff", "check", path]
+    elif linter == "sqlfluff":
+        cmd = ["sqlfluff", "lint", path]
+    else:
+        return True, ""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603,S607
+    except FileNotFoundError:
+        print(f"{linter} not installed in the fix job — skipping lint gate for {path}")
+        return True, ""
+    return r.returncode == 0, (r.stdout + r.stderr)
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -132,7 +175,8 @@ def main() -> None:
         if not p.exists():
             continue
         original = p.read_text(encoding="utf-8")
-        new = fm_fix(path, original, fs)
+        rules = retrieve_rules(original)  # handbook grounding for the fix
+        new = fm_fix(path, original, fs, rules)
         valid, err = review_core.validate_content(path, new)
         if not valid:
             comment(
@@ -140,15 +184,37 @@ def main() -> None:
                 f"({err}); no se hizo push."
             )
             return
-        if new != original:
-            changed[path] = new
+        if not new or new == original:
+            continue
+
+        # Lint gate (+ ONE retry): the fix must ALSO pass Ruff/sqlfluff before we push, so
+        # /bimbops-fix never trades a handbook violation for a linter failure. We write the
+        # candidate so the linter reads it with the repo's config, lint it, and if it fails
+        # feed the exact errors back to the model for one more attempt.
+        p.write_text(new, encoding="utf-8")
+        lint_ok, lint_out = _run_linter(path)
+        if not lint_ok:
+            system, user = review_core.build_fix_retry_prompt(path, new, lint_out)
+            retry = _fm_call(system, user)
+            rvalid, _ = review_core.validate_content(path, retry)
+            if rvalid and retry:
+                p.write_text(retry, encoding="utf-8")
+                lint_ok, lint_out = _run_linter(path)
+                if lint_ok:
+                    new = retry
+            if not lint_ok:
+                p.write_text(original, encoding="utf-8")  # revert working tree; push nothing
+                comment(
+                    f"🤖 **BimbOps Bot**: el arreglo de `{path}` siguió fallando el linter "
+                    f"tras un reintento; no se hizo push.\n\n```\n{lint_out.strip()[:1000]}\n```"
+                )
+                return
+        changed[path] = new
 
     if not changed:
         comment("🤖 **BimbOps Bot**: no se generaron cambios aplicables.")
         return
 
-    for path, new in changed.items():
-        pathlib.Path(path).write_text(new, encoding="utf-8")
     _git("config", "user.name", "BimbOps Bot")
     _git("config", "user.email", "bimbops-bot@users.noreply.github.com")
     _git("add", *changed)

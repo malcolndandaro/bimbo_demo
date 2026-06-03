@@ -28,7 +28,7 @@ We do **not** claim guardrails/rate-limits are active on the agent endpoint —
 
 ## Production layer (out of scope for the demo on the agent endpoint)
 The full suite requires a dedicated AI Gateway endpoint fronting the FM — the shared
-`databricks-claude-sonnet-4-5` FMAPI endpoint can't be modified. Create it as an
+`databricks-claude-opus-4-8` FMAPI endpoint can't be modified. Create it as an
 external/served Claude endpoint configured with `fm_gateway_config.json`, then point the
 agent's `LLM_ENDPOINT` at it; guardrails / rate-limits / usage / fallback then genuinely
 apply. Prior art in this workspace: `ai-gw-claude-governed`.
