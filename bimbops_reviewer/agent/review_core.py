@@ -70,7 +70,7 @@ def build_review_context(diff: str) -> dict:
         elif line.startswith("rename from") or line.startswith("rename to"):
             cur["is_rename"] = True
         elif line.startswith("+++ b/"):
-            cur["path"] = line[6:]
+            cur["path"] = line[6:].rstrip()  # git may pad the path with a tab
             cur["language"] = detect_language(cur["path"])
         else:
             hm = _HUNK.match(line)
@@ -163,25 +163,61 @@ def _coerce_finding(obj: object) -> dict | None:
     }
 
 
+def _first_balanced_object(s: str) -> str | None:
+    """Return the first brace-balanced {...} substring (string/escape aware).
+
+    Used to recover JSON from models that wrap it in prose or code fences —
+    without the greedy `\\{.*\\}` bug that spans trailing junk and breaks parsing.
+    """
+    start = s.find("{")
+    if start < 0:
+        return None
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
+    return None
+
+
+def loads_tolerant(raw: object) -> object | None:
+    """Best-effort JSON decode. Returns the parsed value, or None on failure."""
+    if isinstance(raw, (dict, list)):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        obj = _first_balanced_object(raw)
+        if obj is None:
+            return None
+        try:
+            return json.loads(obj)
+        except (ValueError, TypeError):
+            return None
+
+
 def parse_findings(raw: object) -> list[dict]:
     """Validate model output → list of Finding dicts. Never raises.
 
     Accepts a JSON string, a dict (`{"findings": [...]}`), or a list. Malformed
     input or any parse error → [] (the agent stays non-crashing; user story 38).
     """
-    data: object = raw
-    if isinstance(raw, str):
-        try:
-            data = json.loads(raw)
-        except (ValueError, TypeError):
-            # tolerate models that wrap JSON in prose/fences — grab the first {...}
-            m = re.search(r"\{.*\}", raw, re.S)
-            if not m:
-                return []
-            try:
-                data = json.loads(m.group(0))
-            except (ValueError, TypeError):
-                return []
+    data = loads_tolerant(raw)
     if isinstance(data, dict):
         items = data.get("findings", [])
     elif isinstance(data, list):
@@ -190,9 +226,15 @@ def parse_findings(raw: object) -> list[dict]:
         return []
     if not isinstance(items, list):
         return []
-    out = []
-    for it in items:
-        f = _coerce_finding(it)
-        if f is not None:
-            out.append(f)
-    return out
+    return [f for it in items if (f := _coerce_finding(it)) is not None]
+
+
+def parse_review(raw: object) -> dict:
+    """Parse model output into {"summary": str, "findings": [Finding]} tolerantly.
+
+    Single source of truth so the agent and CI never diverge on how output is read
+    (the summary is recovered with the same fence-tolerant decode as findings).
+    """
+    data = loads_tolerant(raw)
+    summary = data.get("summary", "") if isinstance(data, dict) else ""
+    return {"summary": str(summary or ""), "findings": parse_findings(data)}

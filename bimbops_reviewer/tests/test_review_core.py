@@ -143,3 +143,36 @@ def test_extra_fields_ignored_and_string_line_coerced():
 def test_non_numeric_line_becomes_null():
     out = review_core.parse_findings([_valid(line="n/a")])
     assert out[0]["line"] is None
+
+
+def test_multiple_hunks_one_file_line_numbers():
+    diff = (
+        "diff --git a/m.py b/m.py\n"
+        "+++ b/m.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        " a = 0\n"
+        "+b = 1\n"
+        "@@ -20,1 +21,2 @@\n"
+        " c = 2\n"
+        "+d = 3\n"
+    )
+    f = review_core.build_review_context(diff)["files"][0]
+    assert f["added"] == [(2, "b = 1"), (22, "d = 3")]
+
+
+def test_deleted_only_file_has_no_added():
+    diff = "diff --git a/d.py b/d.py\n+++ b/d.py\n@@ -1,2 +0,0 @@\n-gone = 1\n-also = 2\n"
+    f = review_core.build_review_context(diff)["files"][0]
+    assert f["added"] == []
+
+
+def test_parse_findings_recovers_despite_trailing_junk():
+    raw = '{"findings": [' + json.dumps(_valid()) + "]} and then trailing {garbage"
+    assert len(review_core.parse_findings(raw)) == 1
+
+
+def test_parse_review_recovers_summary_from_code_fence():
+    raw = '```json\n{"summary": "hola", "findings": [' + json.dumps(_valid()) + "]}\n```"
+    review = review_core.parse_review(raw)
+    assert review["summary"] == "hola"
+    assert len(review["findings"]) == 1

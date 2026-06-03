@@ -21,9 +21,11 @@ import requests
 from databricks.sdk import WorkspaceClient
 
 ENDPOINT = os.environ.get("ENDPOINT_NAME", "bimbops-reviewer")
-GH_TOKEN = os.environ["GH_TOKEN"]
-REPO = os.environ["GH_REPO"]
-PR = os.environ["PR_NUMBER"]
+GH_TOKEN = os.environ.get(
+    "GH_TOKEN", ""
+)  # read tolerantly — a missing var must not crash at import
+REPO = os.environ.get("GH_REPO", "")
+PR = os.environ.get("PR_NUMBER", "")
 DIFF_FILE = os.environ.get("DIFF_FILE", "/tmp/pr.diff")  # noqa: S108 — ephemeral CI runner path, set by the workflow
 
 _SEV_EMOJI = {"BLOCKER": "🔴", "SUGGESTION": "🟡", "STYLE": "⚪"}
@@ -56,7 +58,13 @@ def extract_text(resp: dict) -> str:
 
 
 def render_comment(payload: dict) -> str:
-    findings = payload.get("findings") or []
+    # Defensive: CI parses the model text independently of the agent's validator,
+    # so drop any malformed finding before rendering (no literal "None" rows).
+    findings = [
+        f
+        for f in (payload.get("findings") or [])
+        if isinstance(f, dict) and f.get("severity") in _SEV_ORDER and f.get("file")
+    ]
     summary = (payload.get("summary") or "").strip()
     if not findings:
         tail = f" {summary}" if summary else ""
@@ -82,33 +90,41 @@ def render_comment(payload: dict) -> str:
 
 
 def main() -> None:
-    diff = ""
-    p = pathlib.Path(DIFF_FILE)
-    if p.exists():
-        diff = p.read_text(errors="ignore")[:14000]
     try:
-        w = WorkspaceClient()
-        resp = w.api_client.do(
-            "POST",
-            f"/serving-endpoints/{ENDPOINT}/invocations",
-            body={"input": [{"role": "user", "content": diff or "(diff vacío)"}]},
-        )
-        text = extract_text(resp) if isinstance(resp, dict) else ""
+        if not (GH_TOKEN and REPO and PR):
+            print("missing GH_TOKEN/GH_REPO/PR_NUMBER — skipping review (non-blocking)")
+            return
+        diff = ""
+        p = pathlib.Path(DIFF_FILE)
+        if p.exists():
+            diff = p.read_text(errors="ignore")[:14000]
         try:
-            payload = json.loads(text)
-            if not isinstance(payload, dict):
-                payload = {"findings": payload if isinstance(payload, list) else []}
-        except (ValueError, TypeError):
-            payload = {"summary": text[:500], "findings": []}
-        post_comment(render_comment(payload))
-    except Exception as e:  # noqa: BLE001 — any failure must stay non-blocking
-        post_comment(
-            "⚠️ **BimbOps Reviewer** no está disponible ahora mismo; la revisión "
-            "automática no bloquea este PR.\n\n"
-            f"```\n{type(e).__name__}: {str(e)[:300]}\n```"
-        )
-    # Always exit 0 — the AI review is advisory and must never block delivery.
-    sys.exit(0)
+            w = WorkspaceClient()
+            resp = w.api_client.do(
+                "POST",
+                f"/serving-endpoints/{ENDPOINT}/invocations",
+                body={"input": [{"role": "user", "content": diff or "(diff vacío)"}]},
+            )
+            text = extract_text(resp) if isinstance(resp, dict) else ""
+            try:
+                payload = json.loads(text)
+                if not isinstance(payload, dict):
+                    payload = {"findings": payload if isinstance(payload, list) else []}
+            except (ValueError, TypeError):
+                payload = {"summary": text[:500], "findings": []}
+            post_comment(render_comment(payload))
+        except Exception as e:  # noqa: BLE001 — any failure must stay non-blocking
+            try:
+                post_comment(
+                    "⚠️ **BimbOps Reviewer** no está disponible ahora mismo; la revisión "
+                    "automática no bloquea este PR.\n\n"
+                    f"```\n{type(e).__name__}: {str(e)[:300]}\n```"
+                )
+            except Exception:  # noqa: BLE001 — even the fallback comment must never fail the check
+                print(f"review degraded and comment post failed: {type(e).__name__}: {e}")
+    finally:
+        # Always exit 0 — the AI review is advisory and must never block delivery.
+        sys.exit(0)
 
 
 if __name__ == "__main__":

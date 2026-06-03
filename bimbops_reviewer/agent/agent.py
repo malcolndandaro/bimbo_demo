@@ -80,15 +80,7 @@ class BimbopsReviewer(ResponsesAgent):
         rules = _retrieve_rules(query_text)
         system, user = review_core.build_review_prompt(context, rules)
         raw = _call_llm(system, user)
-        findings = review_core.parse_findings(raw)
-
-        summary = ""
-        try:
-            if raw.strip().startswith("{"):
-                summary = (json.loads(raw) or {}).get("summary", "")
-        except (ValueError, TypeError):
-            summary = ""
-        payload = {"summary": summary, "findings": findings}
+        payload = review_core.parse_review(raw)  # tolerant: recovers summary + findings together
         return ResponsesAgentResponse(
             output=[
                 self.create_text_output_item(
