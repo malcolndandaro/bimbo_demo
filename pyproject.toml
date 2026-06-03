@@ -25,4 +25,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/jobs/*.py" = ["F821"]  # dbutils/spark son inyectados por Databricks
+"src/daily_route_profitability.py" = ["F821"]  # dbutils/spark inyectados por Databricks (notebook)

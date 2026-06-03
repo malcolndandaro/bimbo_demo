@@ -1,0 +1,63 @@
+name: bimbops-fix
+
+# Human-triggered autofix. Production: a maintainer comments `/bimbops-fix` on a PR
+# (issue_comment workflows run from the DEFAULT branch). workflow_dispatch is for
+# testing the same job from a feature branch before the agent lands on main.
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to fix"
+        required: true
+
+permissions:
+  contents: write        # the bot pushes a fix commit (via BIMBOPS_BOT_TOKEN, not this token)
+  pull-requests: read
+  issues: write          # post the outcome comment
+
+jobs:
+  fix:
+    name: BimbOps Fix
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request != null && contains(github.event.comment.body, '/bimbops-fix'))
+    runs-on: self-hosted
+    steps:
+      - name: Resolve PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "num=${{ github.event.inputs.pr }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "num=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve PR head branch
+        id: head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "ref=$(gh pr view ${{ steps.pr.outputs.num }} --repo ${{ github.repository }} --json headRefName --jq .headRefName)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.head.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Install deps
+        run: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests mlflow || true
+
+      - name: BimbOps fix
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          DATABRICKS_AUTH_TYPE: oauth-m2m
+          ENDPOINT_NAME: bimbops-reviewer
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.num }}
+          ACTOR: ${{ github.event.comment.user.login || github.actor }}
+          BOT_TOKEN: ${{ secrets.BIMBOPS_BOT_TOKEN }}
+        run: python3 bimbops_reviewer/ci/fix_pr.py

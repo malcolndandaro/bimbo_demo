@@ -10,6 +10,12 @@ variables:
     description: Catálogo Unity Catalog destino, parametrizado por target.
   schema:
     description: Schema dentro del catálogo (p. ej. dev/qa/prod).
+  agent_model_version:
+    description: >-
+      Versión del modelo UC bimbo_demo.dev.bimbops_reviewer a desplegar (config-only
+      redeploy). Vacío = alias @prod. Bump + `bundle deploy` + run del job de deploy
+      reapunta el endpoint a la nueva versión en sitio (sin recrear el endpoint).
+    default: ""
 
 targets:
   dev:

@@ -53,12 +53,14 @@ jobs:
   # Y registrar federation policy en Databricks (ver auth_oidc_for_ci.md).
   bundle-validate:
     name: databricks bundle validate
-    runs-on: ubuntu-latest
+    # Self-hosted (MacBook): allowlisted IP for the workspace (hosted runners are IP-ACL-blocked).
+    runs-on: self-hosted
     if: vars.DATABRICKS_HOST != ''
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_AUTH_TYPE: oauth-m2m
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: databricks/setup-cli@main

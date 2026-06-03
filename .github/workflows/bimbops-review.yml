@@ -1,0 +1,47 @@
+name: bimbops-review
+
+# On every PR, ask the BimbOps Reviewer endpoint to review the diff: post a summary
+# comment AND a severity-gated Check Run (BLOCKER → failure blocks merge; else neutral).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write   # post the review comment via GITHUB_TOKEN
+  checks: write          # post the BimbOps Reviewer Check Run (the severity gate)
+
+jobs:
+  review:
+    name: BimbOps Reviewer
+    # Self-hosted (MacBook): its IP is allowlisted on the workspace. GitHub-hosted
+    # runners are rejected by the workspace IP ACL — see CONTEXT.md / ADR.
+    runs-on: self-hosted
+    # Gated until the CI service principal is configured (vars set in slice 01).
+    if: vars.DATABRICKS_HOST != ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install deps
+        run: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests || true
+
+      - name: Fetch PR diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr diff "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" > /tmp/pr.diff || true
+
+      - name: BimbOps review
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          DATABRICKS_AUTH_TYPE: oauth-m2m
+          ENDPOINT_NAME: bimbops-reviewer
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DIFF_FILE: /tmp/pr.diff
+        run: python3 bimbops_reviewer/ci/review_pr.py

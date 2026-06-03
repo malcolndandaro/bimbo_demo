@@ -1,0 +1,53 @@
+resources:
+  jobs:
+    bimbops_agent_lifecycle:
+      name: "[${bundle.target}] BimbOps Reviewer — agent lifecycle"
+      # The reviewer is built/deployed/evaluated BY this bundle (the recursion): the same
+      # CI/CD that guards PRs also ships the agent. index → register → deploy → eval.
+      # NOTE: the serving endpoint itself is created by agents.deploy() (custom agent
+      # endpoints are not a DABs resource type today); DABs owns the lifecycle JOBS + config.
+      # SCOPE: the BimbOps Reviewer is a SINGLE shared endpoint (UC model registered in dev)
+      # that reviews PRs org-wide — it is NOT per-env, so the scripts pin the dev model on
+      # purpose. Run this job on the dev target; the per-env pipeline is the daily_route job.
+      tags:
+        proyecto: bimbops-reviewer
+        ambiente: ${bundle.target}
+      tasks:
+        - task_key: build_index
+          spark_python_task:
+            python_file: ../../bimbops_reviewer/index/build_handbook_index.py
+          environment_key: agent_env
+
+        - task_key: register_model
+          depends_on:
+            - task_key: build_index
+          spark_python_task:
+            python_file: ../../bimbops_reviewer/agent/log_model.py
+          environment_key: agent_env
+
+        - task_key: deploy_endpoint
+          depends_on:
+            - task_key: register_model
+          spark_python_task:
+            python_file: ../../bimbops_reviewer/agent/deploy_agent.py
+            parameters:
+              # empty = deploy the @prod alias; bump var.agent_model_version for a
+              # config-only redeploy (re-point the endpoint to a specific version in place).
+              - "${var.agent_model_version}"
+          environment_key: agent_env
+
+        - task_key: run_eval
+          depends_on:
+            - task_key: deploy_endpoint
+          spark_python_task:
+            python_file: ../../bimbops_reviewer/eval/run_eval.py
+          environment_key: agent_env
+
+      environments:
+        - environment_key: agent_env
+          spec:
+            client: "2"
+            dependencies:
+              - mlflow==3.12.0
+              - databricks-agents
+              - databricks-sdk

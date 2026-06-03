@@ -1,0 +1,118 @@
+# Equivalente en Azure DevOps de `.github/workflows/deploy.yml`.
+# Pipeline POST-MERGE: deploy dev + integration tests → [gate qa] → [gate prod].
+# Mismo shape que el workflow de GitHub, ajustado a sintaxis ADO.
+#
+# Las puertas de promoción (qa, prod) son *Environments* de ADO con "Approvals &
+# checks" → un revisor humano aprueba antes de cada salto (igual que los GitHub
+# Environments con required reviewers). Ver `ado-translation.md` (mismo directorio).
+#
+# Auth a Databricks vía OIDC/WIF (service connection `sc-bimbops-<env>` con
+# addSpnToEnvironment) — en ADO la federación con Azure SÍ está disponible, así
+# que aquí no hace falta el client_secret M2M que usa el demo en GitHub.
+# Mapa completo en `ado-translation.md` (mismo directorio).
+
+trigger:
+  branches:
+    include: [main]      # solo post-merge a main  (= GHA `push: branches: [main]`)
+
+pr: none                 # este pipeline NO corre en PRs (eso es el pr-checks)
+
+# Agente self-hosted dentro de la red corporativa de Bimbo (IP allowlisted en el
+# workspace de Databricks). Equivale a `runs-on: self-hosted` (runner macos-bimbo
+# del demo) — Bimbo ya tiene un pool de agentes ADO dentro de su red.
+pool:
+  name: 'Bimbo-OnPrem'   # nombre del pool self-hosted (reemplazar por el real)
+
+variables:
+  - group: bimbops-databricks   # variable group: DATABRICKS_HOST, DATABRICKS_SP_CLIENT_ID
+
+# NOTA sobre `cancel-in-progress: false` (GHA): en ADO se consigue con un check
+# "Exclusive Lock" en los Environments qa/prod — un deploy aprobado nunca se
+# cancela porque llegue un push nuevo a main mientras espera aprobación.
+
+stages:
+
+  # ── deploy-dev: deploy + integration tests (sin gate) ───────────────────────
+  - stage: deploy_dev
+    displayName: "Deploy dev + integration tests"
+    jobs:
+      - job: deploy
+        steps:
+          - task: AzureCLI@2
+            displayName: "databricks bundle deploy -t dev"
+            inputs:
+              azureSubscription: 'sc-bimbops-dev'   # WIF service connection (dev)
+              scriptType: bash
+              scriptLocation: inlineScript
+              addSpnToEnvironment: true             # expone el idToken OIDC al script
+              inlineScript: |
+                export DATABRICKS_HOST=$(DATABRICKS_HOST)
+                curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                databricks bundle deploy -t dev
+          - script: |
+              python3 -m venv .venv-it && . .venv-it/bin/activate
+              pip install "databricks-connect>=15.4,<16" "databricks-sdk>=0.30" pytest
+              BIMBO_TEST_SCHEMA=dev pytest tests/ -v --tb=short
+            displayName: "Integration tests (Databricks Connect serverless)"
+            # AUTH: el `bundle deploy` de arriba usa WIF (token OIDC del AzureCLI@2,
+            # solo vivo dentro de esa task). databricks-connect corre en un `script`
+            # aparte, fuera de ese scope, así que aquí se autentica con M2M usando el
+            # MISMO SP (`DATABRICKS_CLIENT_SECRET` debe ser una *secret variable* del
+            # variable group). databricks-connect soporta M2M de forma nativa; es el
+            # único punto donde el demo mezcla WIF (CLI) + M2M (connect), a propósito.
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_CLIENT_ID: $(DATABRICKS_SP_CLIENT_ID)
+              DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+              DATABRICKS_AUTH_TYPE: oauth-m2m
+
+  # ── deploy-qa: promoción con aprobación manual ──────────────────────────────
+  - stage: deploy_qa
+    displayName: "Promote → qa (manual approval)"
+    dependsOn: deploy_dev
+    jobs:
+      # `deployment` (no `job`) + `environment` = lo que dispara el gate de
+      # aprobación. El revisor requerido se configura en:
+      #   Pipelines → Environments → bimbops-qa → Approvals and checks → Approvals.
+      - deployment: deploy_qa
+        environment: 'bimbops-qa'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - task: AzureCLI@2
+                  displayName: "databricks bundle deploy -t qa"
+                  inputs:
+                    azureSubscription: 'sc-bimbops-qa'   # SP por entorno (= run_as qa)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    addSpnToEnvironment: true
+                    inlineScript: |
+                      export DATABRICKS_HOST=$(DATABRICKS_HOST)
+                      curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                      databricks bundle deploy -t qa
+
+  # ── deploy-prod: promoción con aprobación manual ────────────────────────────
+  - stage: deploy_prod
+    displayName: "Promote → prod (manual approval)"
+    dependsOn: deploy_qa
+    jobs:
+      - deployment: deploy_prod
+        environment: 'bimbops-prod'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - task: AzureCLI@2
+                  displayName: "databricks bundle deploy -t prd"
+                  inputs:
+                    azureSubscription: 'sc-bimbops-prd'  # SP por entorno (= run_as prd)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    addSpnToEnvironment: true
+                    inlineScript: |
+                      export DATABRICKS_HOST=$(DATABRICKS_HOST)
+                      curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                      databricks bundle deploy -t prd   # target se llama `prd`, no `prod`

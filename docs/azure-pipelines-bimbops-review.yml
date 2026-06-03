@@ -1,0 +1,71 @@
+# Equivalente en Azure DevOps de `.github/workflows/bimbops-review.yml`.
+# Corre en CADA PR: llama al agente BimbOps Reviewer (Model Serving) sobre el
+# diff y publica (1) un comentario con los hallazgos y (2) un PR *status*. Un
+# hallazgo BLOCKER deja el status en `failed`, y una *branch policy* que exige
+# ese status bloquea el merge (equivale al Check Run "failure" de GitHub).
+#
+# Auth a Databricks: el demo usa M2M (variable group). En producción Bimbo puede
+# usar OIDC/WIF como el pipeline de deploy — el script solo lee variables de
+# entorno DATABRICKS_*. Ver `ado-translation.md` (mismo directorio).
+
+pr:
+  branches:
+    include: [main]
+  # ADO dispara el PR build en open / push-to-source / reopen por defecto,
+  # equivalente a los tipos opened/synchronize/reopened de GitHub.
+
+trigger: none            # no en push a ramas; solo en PR
+
+pool:
+  name: 'Bimbo-OnPrem'   # agente self-hosted (= runs-on: self-hosted)
+
+variables:
+  - group: bimbops-databricks
+
+steps:
+  - checkout: self
+    fetchDepth: 0        # historia completa para diffear contra la rama destino
+
+  - script: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests || true
+    displayName: "Deps"
+
+  - bash: |
+      # En Azure Repos no hay `gh pr diff`; el diff se arma con git contra la
+      # rama destino del PR (System.PullRequest.TargetBranch).
+      git fetch origin "$(System.PullRequest.TargetBranch)"
+      git diff "origin/$(System.PullRequest.TargetBranch)...HEAD" > /tmp/pr.diff || true
+    displayName: "PR diff → /tmp/pr.diff"
+
+  - script: python3 bimbops_reviewer/ci/review_pr.py
+    displayName: "BimbOps Reviewer"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_SP_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+      ENDPOINT_NAME: bimbops-reviewer
+      # ADO no inyecta un GITHUB_TOKEN. El comentario y el PR status se publican
+      # con el OAuth token del build (System.AccessToken) contra la REST API de
+      # Azure Repos. Hay que habilitar "Allow scripts to access the OAuth token"
+      # en el job y mapearlo explícitamente:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      AZDO_ORG_URL: $(System.CollectionUri)
+      AZDO_PROJECT: $(System.TeamProject)
+      AZDO_REPO_ID: $(Build.Repository.ID)
+      PR_NUMBER: $(System.PullRequest.PullRequestId)
+      HEAD_SHA: $(System.PullRequest.SourceCommitId)
+      DIFF_FILE: /tmp/pr.diff
+#
+# NOTA de portabilidad — la lógica de decisión es idéntica entre plataformas:
+# review_core.decide_gate() y to_check_run() son funciones puras y NO conocen
+# GitHub. Lo único que cambia es la capa de publicación al final de review_pr.py:
+#   GitHub  → Check Runs API   (POST /repos/{repo}/check-runs)
+#   ADO     → PR Status API    (POST .../pullRequests/{id}/statuses)
+# Mapeo de conclusión (decide_gate devuelve 3 estados):
+#   BLOCKER                     → state "failed"   (bloquea)
+#   solo SUGGESTION/STYLE       → state "succeeded" (ADO no tiene "neutral"; una
+#                                 branch policy "Status check" trata todo lo que no
+#                                 sea "failed" como aprobado → las sugerencias NO bloquean)
+#   sin hallazgos               → state "succeeded"
+# El "merge blocking" se logra con una branch policy de tipo "Status check" que
+# exige el status `bimbops-reviewer/quality` = succeeded sobre la rama main.
