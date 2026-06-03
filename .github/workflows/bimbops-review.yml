@@ -1,7 +1,7 @@
 name: bimbops-review
 
-# Slice 03 (tracer): on every PR, ask the BimbOps Reviewer endpoint to review the
-# diff and post a summary comment. Advisory only — never blocks the merge.
+# On every PR, ask the BimbOps Reviewer endpoint to review the diff: post a summary
+# comment AND a severity-gated Check Run (BLOCKER → failure blocks merge; else neutral).
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   pull-requests: write   # post the review comment via GITHUB_TOKEN
+  checks: write          # post the BimbOps Reviewer Check Run (the severity gate)
 
 jobs:
   review:
@@ -41,5 +42,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           DIFF_FILE: /tmp/pr.diff
         run: python3 bimbops_reviewer/ci/review_pr.py

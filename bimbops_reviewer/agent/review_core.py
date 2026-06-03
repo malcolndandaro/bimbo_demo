@@ -238,3 +238,83 @@ def parse_review(raw: object) -> dict:
     data = loads_tolerant(raw)
     summary = data.get("summary", "") if isinstance(data, dict) else ""
     return {"summary": str(summary or ""), "findings": parse_findings(data)}
+
+
+# --- Core 4: severity gate + GitHub Check Run mapper (slice 05) -------------------
+# GitHub Checks API: max 50 annotations per request; levels are notice/warning/failure.
+MAX_ANNOTATIONS = 50
+_ANNOTATION_LEVEL = {"BLOCKER": "failure", "SUGGESTION": "warning", "STYLE": "notice"}
+
+
+def decide_gate(findings: list[dict]) -> dict:
+    """Severity gate (ADR-0002): any BLOCKER → failure; only SUGGESTION/STYLE →
+    neutral; no findings → success. Returns the GateDecision contract.
+    """
+    valid = [f for f in (findings or []) if isinstance(f, dict) and f.get("severity") in SEVERITIES]
+    n_block = sum(1 for f in valid if f["severity"] == "BLOCKER")
+    n = len(valid)
+    if n == 0:
+        return {
+            "conclusion": "success",
+            "blocker_count": 0,
+            "summary": "✅ Sin hallazgos contra el BimbOps Handbook.",
+        }
+    if n_block:
+        return {
+            "conclusion": "failure",
+            "blocker_count": n_block,
+            "summary": (
+                f"🔴 {n_block} de {n} hallazgo(s) son BLOCKER — merge bloqueado hasta resolver."
+            ),
+        }
+    return {
+        "conclusion": "neutral",
+        "blocker_count": 0,
+        "summary": f"🟡 {n} hallazgo(s) asesor(es) — no bloquean el merge.",
+    }
+
+
+def to_check_run(findings: list[dict], decision: dict) -> dict:
+    """Map findings → a GitHub Check Run payload (conclusion + output.annotations).
+
+    Line/file-level annotations (file-level uses line 1), severity → annotation
+    level, capped at 50 with a Spanish overflow note. Pure — the CI shell posts it.
+    """
+    annotations = []
+    for f in findings or []:
+        if not (isinstance(f, dict) and f.get("file") and f.get("severity") in _ANNOTATION_LEVEL):
+            continue
+        line = f.get("line") if isinstance(f.get("line"), int) and f["line"] >= 1 else 1
+        msg = str(f.get("message", "")).strip()
+        if f.get("suggestion"):
+            msg += f"\n\nSugerencia: {f['suggestion']}"
+        if f.get("citation"):
+            msg += f"\n\n📖 {f['citation']}"
+        annotations.append(
+            {
+                "path": str(f["file"]),
+                "start_line": line,
+                "end_line": line,
+                "annotation_level": _ANNOTATION_LEVEL[f["severity"]],
+                "title": f"{f['severity']} · {f.get('rule_id', '')}".strip(" ·"),
+                "message": msg or f["severity"],
+            }
+        )
+    summary = decision.get("summary", "")
+    if len(annotations) > MAX_ANNOTATIONS:
+        extra = len(annotations) - MAX_ANNOTATIONS
+        annotations = annotations[:MAX_ANNOTATIONS]
+        summary += f"\n\n_(+{extra} hallazgo(s) adicionales no anotados; límite de 50 de GitHub.)_"
+    titles = {
+        "failure": "BimbOps Reviewer — BLOCKER",
+        "neutral": "BimbOps Reviewer — sugerencias",
+        "success": "BimbOps Reviewer — OK",
+    }
+    return {
+        "conclusion": decision.get("conclusion", "neutral"),
+        "output": {
+            "title": titles.get(decision.get("conclusion"), "BimbOps Reviewer"),
+            "summary": summary,
+            "annotations": annotations,
+        },
+    }

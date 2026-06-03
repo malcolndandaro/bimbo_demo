@@ -176,3 +176,55 @@ def test_parse_review_recovers_summary_from_code_fence():
     review = review_core.parse_review(raw)
     assert review["summary"] == "hola"
     assert len(review["findings"]) == 1
+
+
+# --- decide_gate (severity gate, ADR-0002) ---------------------------------------
+def test_decide_gate_empty_is_success():
+    d = review_core.decide_gate([])
+    assert d["conclusion"] == "success"
+    assert d["blocker_count"] == 0
+
+
+def test_decide_gate_only_advisory_is_neutral():
+    d = review_core.decide_gate([_valid(severity="SUGGESTION"), _valid(severity="STYLE")])
+    assert d["conclusion"] == "neutral"
+    assert d["blocker_count"] == 0
+
+
+def test_decide_gate_any_blocker_is_failure():
+    d = review_core.decide_gate([_valid(severity="SUGGESTION"), _valid(severity="BLOCKER")])
+    assert d["conclusion"] == "failure"
+    assert d["blocker_count"] == 1
+
+
+def test_decide_gate_ignores_invalid_severity():
+    assert review_core.decide_gate([{"severity": "CRITICAL"}])["conclusion"] == "success"
+
+
+# --- to_check_run (GitHub Check Run payload mapper) ------------------------------
+def test_to_check_run_severity_levels_and_conclusion():
+    findings = [
+        _valid(severity="BLOCKER"),
+        _valid(severity="SUGGESTION"),
+        _valid(severity="STYLE"),
+    ]
+    cr = review_core.to_check_run(findings, review_core.decide_gate(findings))
+    assert cr["conclusion"] == "failure"
+    assert [a["annotation_level"] for a in cr["output"]["annotations"]] == [
+        "failure",
+        "warning",
+        "notice",
+    ]
+
+
+def test_to_check_run_file_level_line_defaults_to_1():
+    cr = review_core.to_check_run([_valid(line=None)], {"conclusion": "failure", "summary": "x"})
+    a = cr["output"]["annotations"][0]
+    assert a["start_line"] == 1 and a["end_line"] == 1
+
+
+def test_to_check_run_caps_at_50_with_overflow_note():
+    findings = [_valid(severity="STYLE", file=f"f{i}.py", line=i + 1) for i in range(60)]
+    cr = review_core.to_check_run(findings, review_core.decide_gate(findings))
+    assert len(cr["output"]["annotations"]) == 50
+    assert "no anotados" in cr["output"]["summary"]

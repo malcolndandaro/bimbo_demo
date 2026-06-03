@@ -12,7 +12,6 @@ target but is blocked in the shared FE workspace (no account-admin). See ADR-000
 
 from __future__ import annotations
 
-import json
 import os
 import pathlib
 import sys
@@ -20,12 +19,16 @@ import sys
 import requests
 from databricks.sdk import WorkspaceClient
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "agent"))
+import review_core  # noqa: E402 — sibling agent module; needs the sys.path insert above
+
 ENDPOINT = os.environ.get("ENDPOINT_NAME", "bimbops-reviewer")
 GH_TOKEN = os.environ.get(
     "GH_TOKEN", ""
 )  # read tolerantly — a missing var must not crash at import
 REPO = os.environ.get("GH_REPO", "")
 PR = os.environ.get("PR_NUMBER", "")
+HEAD_SHA = os.environ.get("HEAD_SHA", "")  # PR head commit — required to attach a Check Run
 DIFF_FILE = os.environ.get("DIFF_FILE", "/tmp/pr.diff")  # noqa: S108 — ephemeral CI runner path, set by the workflow
 
 _SEV_EMOJI = {"BLOCKER": "🔴", "SUGGESTION": "🟡", "STYLE": "⚪"}
@@ -40,6 +43,26 @@ def post_comment(body: str) -> None:
             "Accept": "application/vnd.github+json",
         },
         json={"body": body},
+        timeout=30,
+    )
+    r.raise_for_status()
+
+
+def post_check_run(cr: dict) -> None:
+    """Create a GitHub Check Run — the severity gate. failure → blocks merge."""
+    if not HEAD_SHA:
+        print("no HEAD_SHA — skipping Check Run (gate not applied)")
+        return
+    r = requests.post(
+        f"https://api.github.com/repos/{REPO}/check-runs",
+        headers={"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"},
+        json={
+            "name": "BimbOps Reviewer",
+            "head_sha": HEAD_SHA,
+            "status": "completed",
+            "conclusion": cr["conclusion"],
+            "output": cr["output"],
+        },
         timeout=30,
     )
     r.raise_for_status()
@@ -106,13 +129,17 @@ def main() -> None:
                 body={"input": [{"role": "user", "content": diff or "(diff vacío)"}]},
             )
             text = extract_text(resp) if isinstance(resp, dict) else ""
+            payload = review_core.parse_review(text)  # validated {summary, findings}
+            findings = payload["findings"]
             try:
-                payload = json.loads(text)
-                if not isinstance(payload, dict):
-                    payload = {"findings": payload if isinstance(payload, list) else []}
-            except (ValueError, TypeError):
-                payload = {"summary": text[:500], "findings": []}
-            post_comment(render_comment(payload))
+                post_comment(render_comment(payload))
+            except Exception as ce:  # noqa: BLE001 — the comment is best-effort
+                print(f"comment post failed: {type(ce).__name__}: {ce}")
+            try:
+                decision = review_core.decide_gate(findings)
+                post_check_run(review_core.to_check_run(findings, decision))
+            except Exception as ke:  # noqa: BLE001 — the check run is best-effort
+                print(f"check-run post failed: {type(ke).__name__}: {ke}")
         except Exception as e:  # noqa: BLE001 — any failure must stay non-blocking
             try:
                 post_comment(
