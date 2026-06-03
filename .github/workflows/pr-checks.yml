@@ -57,8 +57,9 @@ jobs:
     if: vars.DATABRICKS_HOST != ''
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_AUTH_TYPE: oauth-m2m
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: databricks/setup-cli@main
