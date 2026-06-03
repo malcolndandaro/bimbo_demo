@@ -1,0 +1,71 @@
+name: deploy
+
+# Post-merge pipeline: on push to main → deploy dev + serverless integration tests
+# → [manual gate: qa] → deploy qa → [manual gate: prod] → deploy prod.
+# The qa/prod gates are GitHub Environments with required reviewers — each promotion
+# pauses for a human approval (hand Roberto the button). "prod" is a sandbox schema
+# (bimbo_demo.prod), so the live promotion is safe to run in the demo.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-dev:
+    name: Deploy dev + serverless integration tests
+    # Self-hosted (MacBook): IP-allowlisted; hosted runners are rejected by the workspace IP ACL.
+    runs-on: self-hosted
+    if: vars.DATABRICKS_HOST != ''
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m   # OIDC is the documented target; blocked here (no account-admin)
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      BIMBO_TEST_SCHEMA: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Deploy bundle to dev
+        run: databricks bundle deploy -t dev
+      - name: Serverless integration tests
+        run: |
+          python3 -m venv .venv-it
+          . .venv-it/bin/activate
+          pip install --quiet --disable-pip-version-check "databricks-connect>=15.4,<16" "databricks-sdk>=0.30" pytest
+          pytest tests/ -v --tb=short
+
+  deploy-qa:
+    name: Promote to qa (manual approval)
+    runs-on: self-hosted
+    needs: deploy-dev
+    if: vars.DATABRICKS_HOST != ''
+    environment: qa   # required-reviewer gate — pauses for human approval
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Deploy bundle to qa
+        run: databricks bundle deploy -t qa
+
+  deploy-prod:
+    name: Promote to prod (manual approval)
+    runs-on: self-hosted
+    needs: deploy-qa   # waits for qa to deploy AND its approval
+    if: vars.DATABRICKS_HOST != ''
+    environment: prod   # required-reviewer gate — pauses for a separate human approval
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Deploy bundle to prod (sandbox schema bimbo_demo.prod)
+        run: databricks bundle deploy -t prd
