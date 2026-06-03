@@ -1,99 +1,97 @@
-# 04 — Quality Gate de CI/CD (Ruff + sqlfluff + bundle validate)
+# BimbOps Reviewer — CI/CD E2E con un agente de IA en Databricks
 
-> Implementa la recomendación **R01 (Code Quality Scoring)** y **R07 (DABs
-> validate como required status check)** del assessment Databricks 2026-05.
-> Tres herramientas, un solo gate, bloqueo automático de PRs.
+> Demo de CI/CD de extremo a extremo para el equipo de plataforma de Grupo Bimbo
+> ("BimbOps"). El protagonista es el **BimbOps Reviewer**: un revisor de código por
+> IA que corre como un asset gobernado de Databricks y se integra al pipeline de
+> GitHub Actions — revisa PRs, los corrige a pedido, y promueve el código por
+> `dev → qa → prod`.
 
 ## La idea en una línea
 
-> Cada PR ejecuta Ruff (Python), sqlfluff (SQL) y `databricks bundle validate`
-> en paralelo. Cualquiera de los tres en rojo → status check rojo → merge
-> bloqueado por branch protection.
+> En cada PR, los linters determinísticos atrapan la **sintaxis** (Ruff, sqlfluff,
+> `bundle validate`) y el **BimbOps Reviewer** —un agente que conoce los estándares
+> de Bimbo— atrapa lo **semántico/de política** que ninguna herramienta determinística
+> ve (p. ej. un job de *dev* que referencia el catálogo de *producción* `bimbo_prd`).
+> Solo los hallazgos **BLOCKER** bloquean; el humano sigue aprobando.
 
-## Las tres herramientas y qué cubren
+## Qué es el BimbOps Reviewer
 
-| Herramienta | Qué valida | Velocidad |
-|-------------|------------|-----------|
-| **Ruff** | Estilo, bugs comunes, security (bandit subset), modernización de sintaxis Python | < 1s en repos medianos |
-| **sqlfluff** | Estilo SQL (dialect=databricks): capitalización, alias con `AS`, identifiers consistentes, orderings por ordinal | < 5s en cientos de archivos |
-| **databricks bundle validate** | Sintaxis de `databricks.yml`, existencia de recursos referenciados, permisos de `run_as`, targets bien formados | 5–15s con autenticación |
+Un **MLflow `ResponsesAgent`** desplegado en **Databricks Model Serving** (endpoint
+`bimbops-reviewer`), aterrizado sobre el **BimbOps Handbook** (22 reglas de estándares)
+vía **Vector Search**, y potenciado por **Claude** (`databricks-claude-sonnet-4-5`).
 
-Los tres son **complementarios, no superponibles**.
+- **Modo review** (automático en cada PR): publica hallazgos **citados, en español** +
+  un **Check Run `BimbOps Reviewer`** que gatea el merge por severidad.
+- **Modo fix** (`/bimbops-fix`, disparado por un humano): el bot **reescribe el archivo
+  y hace push** de un commit a la rama del PR, que re-dispara la revisión (bucle
+  auto-correctivo).
+- **Agent-as-code:** el revisor se construye/despliega/evalúa con el **mismo pipeline
+  que vigila** (un job de DABs lo arma: index → registro UC → deploy → eval).
 
-## Estructura del proyecto
+## El pipeline (GitHub Actions + Databricks Asset Bundles)
 
 ```
-04-ci-quality-gate/
-├── databricks.yml                       ← DABs bundle definition
-├── resources/jobs/
-│   └── daily_route_profitability.job.yml
-├── src/jobs/
-│   └── daily_route_profitability.py    ← orquestación que llama a snippet 01
-├── sql/
-│   └── daily_summary.sql               ← SQL bien formateado (passes sqlfluff)
-├── pyproject.toml                       ← config de Ruff
-├── .sqlfluff                            ← config de sqlfluff (dialect=databricks)
-├── .github/workflows/
-│   └── pr-checks.yml                    ← workflow GHA (LO QUE DEMOSTRAMOS)
-├── docs/
-│   └── azure-pipelines-equivalent.yml  ← misma forma en Azure DevOps
-├── bad-pr/                              ← anti-ejemplos para el demo
-│   ├── bad_python.py
-│   ├── bad_sql.sql
-│   ├── bad-databricks.yml
-│   └── README.md
-└── README.md (este archivo)
+PR  →  pr-checks (Ruff + sqlfluff + bundle validate)  +  bimbops-review (Check Run por severidad)
+    →  /bimbops-fix (el bot corrige y hace push)  →  aprobación humana + merge a main
+    →  deploy-dev + tests de integración serverless  →  [gate qa]  →  [gate prod]
 ```
 
-## Cómo se ve la demo
+| Workflow (`.github/workflows/`) | Qué hace |
+|---|---|
+| `pr-checks.yml` | Linters determinísticos (sintaxis) + `bundle validate` para dev/qa/prd |
+| `bimbops-review.yml` | El agente revisa el diff y publica el Check Run gateado por severidad (ADR-0002) |
+| `bimbops-fix.yml` | `/bimbops-fix` → el bot reescribe y hace push (identidad propia, ADR-0003) |
+| `deploy.yml` | Post-merge: dev + tests → **gate qa** → **gate prod** (GitHub Environments) |
 
-1. **Estado verde:** correr los 3 linters localmente sobre `src/` y `sql/`.
-   Todos pasan.
+## Estructura del repo
 
-   ```bash
-   ruff check src/
-   sqlfluff lint sql/
-   databricks bundle validate -t dev
-   ```
+```
+bimbops_reviewer/      ← el agente
+  agent/               core puro (review_core.py) + ResponsesAgent + log/deploy
+  ci/                  shells de CI: review_pr.py (comentario + Check Run), fix_pr.py (push)
+  index/               construye la tabla del Handbook + el índice de Vector Search
+  eval/                harness mlflow.genai.evaluate (gate de regresión)
+  gateway/             configuración y reporte de costo de AI Gateway
+  tests/               37 unit tests del core puro
+bimbops_handbook/      22 reglas de estándares (la base de conocimiento del agente)
+src/                   pipeline "bakery": bakery/transforms.py (Transform pattern) + job
+data/seed_bakery.py    generador sintético de las tablas fuente (recuperación)
+sql/  resources/  tests/  bad-pr/
+docs/                  traducción a Azure DevOps (ado-translation.md + azure-pipelines-*.yml)
+databricks.yml         bundle bimbo-bakery-pipeline; targets dev/qa/prd
+```
 
-2. **Estado rojo:** correr los 3 linters sobre `bad-pr/`. Cada uno arroja
-   su propio set de errores.
+## Cómo correr
 
-   ```bash
-   ruff check bad-pr/bad_python.py
-   sqlfluff lint bad-pr/bad_sql.sql
-   databricks bundle validate --config-file bad-pr/bad-databricks.yml
-   ```
+```bash
+# Linters (lo que corre pr-checks)
+ruff check src/ && ruff format --check src/
+sqlfluff lint sql/
 
-3. **En GitHub:** un PR que incluya los archivos de `bad-pr/` aparece con
-   los 3 status checks en rojo. El merge button está bloqueado por
-   branch protection rule.
+# Bundle
+databricks bundle validate -t dev          # también -t qa, -t prd
+databricks bundle deploy   -t dev
 
-## Lo que Bimbo tiene que cambiar para adoptar esto
+# Unit tests del core del agente (sin workspace)
+pytest bimbops_reviewer/tests/ -v
 
-| Pieza | Esfuerzo | Bloqueador |
-|-------|----------|------------|
-| Crear `pyproject.toml` y `.sqlfluff` en cada repo | Bajo | Ninguno |
-| Convertir `pr-checks.yml` a `azure-pipelines.yml` | Bajo | Ya hay template (`docs/`) |
-| Habilitar branch protection con required checks | Bajo | Permisos de ADO admin |
-| OIDC federation para `bundle validate` en CI | Medio | R12, Wave 3 |
-| Migrar DataLake Cloud y RTM al template v2 | Medio | R04, Wave 1 |
+# (Re)desplegar el agente de punta a punta — index → registro → deploy → eval
+databricks bundle run bimbops_agent_lifecycle -t dev
+```
 
-## Anti-patterns a evitar
+## Documentación
 
-- ❌ **Linter "informativo" sin bloqueo.** Si el check no es *required*, los
-  devs aprenden a ignorarlo. Bloquear desde el día 1.
-- ❌ **Umbral cero al inicio.** Activar `select = [...]` con muchos códigos
-  el primer día genera resentimiento. Empezar mínimo (E, F) y endurecer
-  cada sprint.
-- ❌ **Excluir directorios sin justificación.** Si excluyes `legacy/`,
-  documenta cuándo se va a limpiar.
+- **`CLAUDE.md`** — orientación completa: arquitectura, mapa del repo, convenciones, assets en vivo.
+- **`DEMO.md`** — runbook paso a paso del demo en vivo (con guion en español y plan de respaldo).
+- **`docs/ado-translation.md`** — paridad con Azure DevOps (el stack real de Bimbo).
+- `CONTEXT.md`, los 3 ADRs y `REBUILD.md` (runbook de recuperación) viven en el workspace local `/bimbo`, fuera de este repo público.
 
-## Cómo se conecta con el resto
+## Notas
 
-- **01-transform-pattern** — el código Python que Ruff valida.
-- **02-auth-recommended** — OIDC federation autentica el `bundle validate`
-  step sin client_secret.
-- **05-integration-tests-serverless** — los tests de integración se corren
-  en un stage *separado* (post-merge a main), no en el gate de PR — para
-  no bloquear PRs por flakes de red.
+- Repo **público** — sin secretos ni identificadores del workspace. Los secretos viven en
+  GitHub Actions secrets; la config no-secreta en repo variables.
+- El hallazgo estrella del demo es a propósito una **referencia cross-env**, no un secreto
+  (Bimbo ya corre GitHub Secret Scanning) — por eso solo un agente con criterio lo atrapa.
+- Auth de CI a Databricks por **OAuth M2M** (OIDC federation es el take-home documentado).
+  Los jobs que tocan Databricks corren en un **runner self-hosted** (la IP-ACL del workspace
+  bloquea los runners hosted de GitHub).
