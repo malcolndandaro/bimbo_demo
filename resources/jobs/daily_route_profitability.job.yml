@@ -9,7 +9,7 @@ resources:
       tasks:
         - task_key: build_profitability
           notebook_task:
-            notebook_path: ../../src/jobs/daily_route_profitability.py
+            notebook_path: ../../src/daily_route_profitability.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}

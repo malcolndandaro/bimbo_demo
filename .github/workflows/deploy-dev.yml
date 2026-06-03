@@ -21,10 +21,9 @@ jobs:
       DATABRICKS_AUTH_TYPE: oauth-m2m   # OIDC is the documented target; blocked here (no account-admin)
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
       DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      BIMBO_TEST_SCHEMA: dev   # integration tests run against bimbo_demo.dev explicitly
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: databricks/setup-cli@main
 
@@ -37,5 +36,5 @@ jobs:
         run: |
           python3 -m venv .venv-it
           . .venv-it/bin/activate
-          pip install --quiet --disable-pip-version-check "databricks-connect>=15.4" "databricks-sdk>=0.30" pytest
+          pip install --quiet --disable-pip-version-check "databricks-connect>=15.4,<16" "databricks-sdk>=0.30" pytest
           pytest tests/ -v --tb=short

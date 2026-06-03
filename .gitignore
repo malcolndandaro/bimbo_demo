@@ -7,3 +7,4 @@ __pycache__/
 .databricks/
 .envrc
 mlflow.db
+.venv-it/
