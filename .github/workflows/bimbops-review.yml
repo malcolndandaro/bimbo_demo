@@ -13,7 +13,9 @@ permissions:
 jobs:
   review:
     name: BimbOps Reviewer
-    runs-on: ubuntu-latest
+    # Self-hosted (MacBook): its IP is allowlisted on the workspace. GitHub-hosted
+    # runners are rejected by the workspace IP ACL — see CONTEXT.md / ADR.
+    runs-on: self-hosted
     # Gated until the CI service principal is configured (vars set in slice 01).
     if: vars.DATABRICKS_HOST != ''
     steps:
@@ -21,12 +23,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Install deps
-        run: pip install --quiet "databricks-sdk>=0.30" requests
+        run: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests || true
 
       - name: Fetch PR diff
         env:
@@ -44,4 +42,4 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DIFF_FILE: /tmp/pr.diff
-        run: python bimbops_reviewer/ci/review_pr.py
+        run: python3 bimbops_reviewer/ci/review_pr.py

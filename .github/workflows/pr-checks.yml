@@ -53,7 +53,8 @@ jobs:
   # Y registrar federation policy en Databricks (ver auth_oidc_for_ci.md).
   bundle-validate:
     name: databricks bundle validate
-    runs-on: ubuntu-latest
+    # Self-hosted (MacBook): allowlisted IP for the workspace (hosted runners are IP-ACL-blocked).
+    runs-on: self-hosted
     if: vars.DATABRICKS_HOST != ''
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
