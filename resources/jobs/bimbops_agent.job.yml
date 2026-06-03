@@ -31,8 +31,10 @@ resources:
           spark_python_task:
             python_file: ../../bimbops_reviewer/agent/deploy_agent.py
             parameters:
-              # empty = deploy the @prod alias; bump var.agent_model_version for a
-              # config-only redeploy (re-point the endpoint to a specific version in place).
+              # "@prod" (default) = deploy the @prod alias; set var.agent_model_version
+              # to a numeric version for a config-only redeploy (re-point in place).
+              # MUST stay non-empty — an empty bundle var serializes to a null Terraform
+              # list element and the provider panics ("parameters[<nil>] is not a string").
               - "${var.agent_model_version}"
           environment_key: agent_env
 
