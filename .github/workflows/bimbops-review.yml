@@ -13,7 +13,10 @@ permissions:
 
 jobs:
   review:
-    name: BimbOps Reviewer
+    # Job name is distinct from the custom "BimbOps Reviewer" Check Run that review_pr.py
+    # posts (the severity gate). An identical name shows two checks on the PR — the
+    # always-green job check and the red gate — which looks broken. Keep them distinguishable.
+    name: bimbops-review (run)
     # Self-hosted (MacBook): its IP is allowlisted on the workspace. GitHub-hosted
     # runners are rejected by the workspace IP ACL — see CONTEXT.md / ADR.
     runs-on: self-hosted

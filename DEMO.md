@@ -17,9 +17,9 @@ A single **continuous E2E CI/CD pipeline** on the live `bimbo_demo` repo, whose 
 - After merge, `deploy.yml` runs **dev + integration tests → qa gate → prod gate** with human approvals at each promotion.
 - The headline: **the reviewer is itself shipped by the same pipeline it guards** (agent-as-code in DABs).
 
-**The hero violation:** a dev job hardcodes a reference to the **production catalog `bimbo_prd`** — `f"SELECT * FROM bimbo_prd.gold_pricing WHERE region = '{region}'"`. This is **deliberately not a secret** (Bimbo already runs GitHub Secret Scanning, so a secret finding would be undifferentiated). Only a **standards-aware** agent catches a cross-env policy violation. The reviewer flags it as a **BLOCKER under rule ENV-01**.
+**The hero violation:** a dev job reads the **production catalog `bimbo_prd`** — `spark.read.table("bimbo_prd.gold_pricing")`. This is **deliberately not a secret** (Bimbo already runs GitHub Secret Scanning, so a secret finding would be undifferentiated) and **not even a syntax error** — every deterministic linter passes. Only a **standards-aware** agent catches a cross-env policy violation. The reviewer flags it as a **BLOCKER under rule ENV-01**.
 
-**The labor split (the key talking point):** deterministic linters own **syntax** (Ruff, sqlfluff, bandit); the **agent owns the semantic/policy layer** — BLOCKER = the `bimbo_prd` cross-env reference (ENV-01); SUGGESTION = a Transform-pattern refactor of `apply_price_adjustments` (`.collect()` driver anti-pattern TP-02, reads `sys.argv` inside the function TP-04, not a composable `df->df` TP-01).
+**The labor split (the key talking point):** the deterministic linters (Ruff, sqlfluff, `bundle validate`) **all pass** — this PR is syntactically clean. The **BimbOps Reviewer is the sole blocker**: BLOCKER = the `bimbo_prd` cross-env read (ENV-01); SUGGESTIONs = Transform-pattern smells in `apply_price_adjustments` (`.collect()` to the driver = TP-02, `sys.argv` read inside the transform = TP-04, a table read inside the transform = TP-01); plus a SQL-01 STYLE note on the dashboard view. So `/bimbops-fix` alone takes the PR fully green.
 
 ---
 
@@ -27,7 +27,7 @@ A single **continuous E2E CI/CD pipeline** on the live `bimbo_demo` repo, whose 
 
 > ⚠️ **Must prepare beforehand** — items marked **[PREP]** are not part of the live flow. Run the health-check block at the top of `REBUILD.md` (in `/bimbo`) to confirm all Databricks assets exist.
 
-- [ ] **[PREP] Hero PR is open and clean.** Confirm **PR #1** (`feature/nueva-logica-precios` → `main`, "feat: agregar lógica de ajustes de precio y dashboard") is **OPEN** and the cross-env literal is present at `src/jobs/pricing_adjustments.py:27`. If you already ran the flow once in rehearsal, **re-open a fresh hero PR** (or reset the branch) so the review/fix/merge sequence is live and unblemished. *(PR #3 `demo/env-blocker` was a throwaway gate test — keep it closed.)*
+- [ ] **[PREP] Hero PR is open and clean.** Confirm **PR #1** (`feature/nueva-logica-precios` → `main`, "feat: agregar lógica de ajustes de precio y dashboard") is **OPEN**, head is the clean commit based on current `main`, and the cross-env read `spark.read.table("bimbo_prd.gold_pricing")` is present at `src/jobs/pricing_adjustments.py:21`. Expected on a fresh run: Ruff/sqlfluff/bundle-validate **green**, `BimbOps Reviewer` **red (ENV-01 BLOCKER)**. If you already ran `/bimbops-fix` or merged in a rehearsal, reset the branch to `main` + the two hero files again (or ask Claude to). *(PR #3 `demo/env-blocker` was a throwaway gate test — keep it closed.)*
 - [ ] **Self-hosted runner `macos-bimbo` is UP** and listening (GitHub → repo → Settings → Actions → Runners shows it green). Every Databricks-touching job needs it; hosted runners are IP-ACL-blocked. Start it with `./run.sh` from `~/Work/Projects/actions-runner` if offline.
 - [ ] **Serving endpoint `bimbops-reviewer` is warm/READY.** Check: `databricks serving-endpoints get bimbops-reviewer` → `state.ready=READY`, v3 @ 100%. `scale_to_zero=false`, so it should stay warm — but hit it once to be sure.
 - [ ] **Logged into GitHub UI as `malcolndandaro`** in the browser (EMU: approvals and merges go through the UI as this identity, not `gh` as the corporate account).
@@ -64,16 +64,16 @@ A single **continuous E2E CI/CD pipeline** on the live `bimbo_demo` repo, whose 
 
 - **Do:** open **PR #1** in the browser.
 - **URL:** `https://github.com/malcolndandaro/bimbo_demo/pull/1`
-- **Say:** "Un dev junior, en su primer mes, abrió este PR con nueva lógica de precios. Sintácticamente está bien — Ruff y sqlfluff pasan." Open `src/jobs/pricing_adjustments.py` in the Files tab and point at **line 27**: `query = f"SELECT * FROM bimbo_prd.gold_pricing WHERE region = '{region}'"`.
-- **Say (the differentiation beat):** "Fíjense: esto **no es un secreto** — su GitHub Secret Scanning ya cubre eso. Es una referencia a `bimbo_prd`, el catálogo de **producción**, desde un job de **dev**. Ninguna herramienta determinística lo atrapa. Esto solo lo ve algo que **conoce sus estándares**."
-- **Expected:** `pr-quality-gate` checks (ruff, sqlfluff, bundle-validate) are green/neutral on syntax.
+- **Say:** "Un dev junior, en su primer mes, abrió este PR con nueva lógica de precios. Sintácticamente está impecable — Ruff, sqlfluff y `bundle validate` pasan en verde." Open `src/jobs/pricing_adjustments.py` in the Files tab and point at **line 21**: `spark.read.table("bimbo_prd.gold_pricing")`.
+- **Say (the differentiation beat):** "Fíjense: esto **no es un secreto** —su GitHub Secret Scanning ya cubre eso— y **ni siquiera es un error de sintaxis**: todos los linters pasan. Es un job de **dev** leyendo el catálogo de **producción** `bimbo_prd`. Ninguna herramienta determinística lo atrapa. Esto solo lo ve algo que **conoce sus estándares**."
+- **Expected:** `pr-quality-gate` checks (Ruff, sqlfluff, `databricks bundle validate`) are all **green**.
 
 ### Step 2 — The BimbOps Reviewer posts its findings
 
 - **Do:** scroll to the PR conversation; show the **Spanish review comment** and the **`BimbOps Reviewer` Check Run** (red / failing). Click into the Checks tab to show the line annotations.
-- **Say:** "El revisor leyó el diff, recuperó las reglas relevantes del **BimbOps Handbook** por Vector Search, y publicó hallazgos **citados**. Aquí el **BLOCKER**: regla **ENV-01**, cita `BimbOps Handbook › Catalog-per-Env › ENV-01`. Y abajo una **SUGGESTION**: refactorizar `apply_price_adjustments` al Transform pattern — usa `.collect()` (TP-02) y lee `sys.argv` dentro de la función (TP-04)."
-- **Say (severity gate):** "Solo el BLOCKER bloquea el merge. SUGGESTION y STYLE son consejos. Es un *primer filtro*, no un muro — el humano sigue aprobando. Dos capas de defensa." (ADR-0002)
-- **Expected:** red `BimbOps Reviewer` Check Run = `failure`; cited Spanish comment visible. (Note: it blocks the merge button only once the check is added as a required status check on `main` — ADR-0002 graduation; otherwise it's advisory-red.)
+- **Say:** "El revisor leyó el diff, recuperó las reglas relevantes del **BimbOps Handbook** por Vector Search, y publicó **5 hallazgos citados, 1 BLOCKER**. El **BLOCKER**: regla **ENV-01** (línea 21), cita `BimbOps Handbook › Catalog-per-Env › ENV-01` — leer `bimbo_prd` desde dev. Las **SUGGESTIONs** son del Transform pattern en `apply_price_adjustments`: `.collect()` al driver (TP-02), lee `sys.argv` dentro del transform (TP-04), y lee una tabla dentro del transform (TP-01). Más una nota **STYLE** de SQL (SQL-01)."
+- **Say (severity gate):** "Solo el BLOCKER bloquea el merge. SUGGESTION y STYLE son consejos. Como los linters ya pasaron, **el agente es el único que bloquea** — atrapó algo con criterio que ninguna herramienta determinística ve. Sigue siendo un *primer filtro*; el humano aprueba. Dos capas de defensa." (ADR-0002)
+- **Expected:** red `BimbOps Reviewer` Check Run = `failure`; cited Spanish comment with 5 findings visible. (Note: it blocks the merge *button* only once the check is added as a required status check on `main` — ADR-0002 graduation; otherwise it's advisory-red.)
 
 ### Step 3 — Trigger the autofix with `/bimbops-fix`
 
