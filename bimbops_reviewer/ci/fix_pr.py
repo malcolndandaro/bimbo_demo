@@ -102,7 +102,7 @@ def _fm_call(system: str, user: str) -> str | None:
                 {"role": "user", "content": user},
             ],
             "max_tokens": 4000,
-            "temperature": 0.0,
+            # opus-4-8 rejects `temperature` (400) — manages sampling internally. Don't re-add.
         },
     )
     return review_core.extract_code(resp["choices"][0]["message"]["content"])
