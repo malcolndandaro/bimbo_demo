@@ -10,22 +10,44 @@ from __future__ import annotations
 import pathlib
 
 import mlflow
+from mlflow.models.resources import (
+    DatabricksServingEndpoint,
+    DatabricksVectorSearchIndex,
+)
 from mlflow.tracking import MlflowClient
 
 FULL_NAME = "bimbo_demo.dev.bimbops_reviewer"
 EXPERIMENT = "/Users/malcoln.dandaro@databricks.com/bimbops_reviewer/experiment"
 AGENT_FILE = str(pathlib.Path(__file__).with_name("agent.py"))
+CORE_FILE = str(pathlib.Path(__file__).with_name("review_core.py"))
+LLM_ENDPOINT = "databricks-claude-sonnet-4-5"
+VS_INDEX = "bimbo_demo.dev.bimbops_handbook_rules_idx"
 
 mlflow.set_tracking_uri("databricks")  # log to the workspace, not local ./mlruns
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_experiment(EXPERIMENT)
 
-with mlflow.start_run(run_name="tracer"):
+# A tiny diff so the input-example validation exercises the real path (retrieval + LLM).
+_EXAMPLE = {
+    "input": [
+        {
+            "role": "user",
+            "content": "diff --git a/x.py b/x.py\n+++ b/x.py\n@@ -0,0 +1 @@\n+x = 1\n",
+        }
+    ]
+}
+
+with mlflow.start_run(run_name="grounded"):
     info = mlflow.pyfunc.log_model(
         name="agent",
         python_model=AGENT_FILE,  # "models from code" — agent.py calls set_model()
-        input_example={"input": [{"role": "user", "content": "ping"}]},
-        pip_requirements=["mlflow==3.12.0", "pydantic>=2"],
+        code_paths=[CORE_FILE],  # pure cores travel with the model
+        input_example=_EXAMPLE,
+        pip_requirements=["mlflow==3.12.0", "databricks-sdk", "pydantic>=2"],
+        resources=[  # passthrough auth for the deployed endpoint — DO NOT skip
+            DatabricksServingEndpoint(endpoint_name=LLM_ENDPOINT),
+            DatabricksVectorSearchIndex(index_name=VS_INDEX),
+        ],
         registered_model_name=FULL_NAME,
     )
 print("model_uri:", info.model_uri)
@@ -34,7 +56,7 @@ print("model_uri:", info.model_uri)
 # before the ~15-min endpoint deploy).
 mlflow.models.predict(
     model_uri=info.model_uri,
-    input_data={"input": [{"role": "user", "content": "ping"}]},
+    input_data=_EXAMPLE,
     env_manager="local",
 )
 
