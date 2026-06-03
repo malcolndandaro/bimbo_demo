@@ -51,7 +51,9 @@ jobs:
           persist-credentials: false
 
       - name: Install deps
-        run: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests mlflow || true
+        # ruff/sqlfluff pinned to the SAME versions pr-checks uses, so the fix-mode lint
+        # gate agrees with the required status checks the PR must ultimately pass.
+        run: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests mlflow "ruff==0.6.9" "sqlfluff==3.2.5" || true
 
       - name: BimbOps fix
         env:

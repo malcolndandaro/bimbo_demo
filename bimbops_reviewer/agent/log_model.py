@@ -20,7 +20,7 @@ FULL_NAME = "bimbo_demo.dev.bimbops_reviewer"
 EXPERIMENT = "/Users/malcoln.dandaro@databricks.com/bimbops_reviewer/experiment"
 AGENT_FILE = str(pathlib.Path(__file__).with_name("agent.py"))
 CORE_FILE = str(pathlib.Path(__file__).with_name("review_core.py"))
-LLM_ENDPOINT = "databricks-claude-sonnet-4-5"
+LLM_ENDPOINT = "databricks-claude-opus-4-8"
 VS_INDEX = "bimbo_demo.dev.bimbops_handbook_rules_idx"
 
 mlflow.set_tracking_uri("databricks")  # log to the workspace, not local ./mlruns

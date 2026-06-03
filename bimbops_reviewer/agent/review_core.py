@@ -96,6 +96,10 @@ _SYSTEM = (
     "Revisas un diff de PR ÚNICAMENTE contra las reglas del BimbOps Handbook que se "
     "te proporcionan. No inventes reglas. Cada hallazgo DEBE citar un rule_id de la "
     "lista provista. Responde en español. Si no hay violaciones, devuelve findings vacío.\n\n"
+    "Linters determinísticos YA corren en cada PR y cubren sintaxis/estilo/seguridad-lint: "
+    "Ruff (Python: E/F/I/B/UP/SIM/S) y sqlfluff (SQL), más `databricks bundle validate`. "
+    "NO dupliques sus hallazgos. Concéntrate en la capa SEMÁNTICA/de política del Handbook "
+    "que ellos NO pueden detectar (cross-env, Transform pattern, secretos, naming, DABs).\n\n"
     "Severidad: usa la severity_hint de la regla, pero ESCALA a BLOCKER cualquier "
     "referencia a un catálogo de otro ambiente (p.ej. *_prd / prod desde dev) o un "
     "secreto/credencial en código. STYLE para nits de formato.\n\n"
@@ -327,10 +331,23 @@ def to_check_run(findings: list[dict], decision: dict) -> dict:
 _WRITE_PERMS = ("write", "maintain", "admin")
 _FIX_SYSTEM = (
     "Eres el BimbOps Reviewer en MODO ARREGLO. Recibes el contenido COMPLETO de un "
-    "archivo y una lista de hallazgos del BimbOps Handbook. Devuelve el contenido "
-    "COMPLETO y corregido del archivo, resolviendo los hallazgos y preservando el "
-    "resto del código y su comportamiento. No expliques nada: devuelve SOLO el "
-    "archivo corregido dentro de un único bloque ```...``` (sin texto fuera del bloque)."
+    "archivo, las REGLAS relevantes del BimbOps Handbook, y una lista de hallazgos. "
+    "Devuelve el contenido COMPLETO y corregido del archivo que: "
+    "(1) resuelve los hallazgos SIGUIENDO las convenciones del BimbOps Handbook; "
+    "(2) NO introduce nuevas violaciones del Handbook; "
+    "(3) PASA los linters determinísticos — Ruff en Python (E/F/I/B/UP/SIM/S: imports en "
+    "líneas separadas y todos usados, `is None` en vez de `== None`, sin `except:` desnudo, "
+    "sin defaults mutables, f-strings en vez de .format, etc.) y sqlfluff en SQL (keywords "
+    "en MAYÚSCULAS, alias con AS, sin identificadores que sean palabras reservadas); y "
+    "(4) preserva el resto del código y su comportamiento. "
+    "No expliques nada: devuelve SOLO el archivo corregido dentro de un único bloque "
+    "```...``` (sin texto fuera del bloque)."
+)
+_FIX_RETRY_SYSTEM = (
+    "Eres el BimbOps Reviewer en MODO ARREGLO (REINTENTO). Tu intento anterior de corregir "
+    "un archivo FALLÓ el linter. Corrige EXACTAMENTE esos errores de linter SIN reintroducir "
+    "violaciones del BimbOps Handbook ni cambiar el comportamiento. Devuelve SOLO el archivo "
+    "COMPLETO corregido dentro de un único bloque ```...``` (sin texto fuera del bloque)."
 )
 _FENCE = re.compile(r"```[a-zA-Z0-9_+.-]*\n(?P<code>.*?)```", re.S)
 
@@ -346,7 +363,9 @@ def is_authorized(permission: str, branch_is_protected: bool) -> tuple[bool, str
     return True, ""
 
 
-def build_fix_prompt(path: str, original: str, findings: list[dict]) -> tuple[str, str]:
+def build_fix_prompt(
+    path: str, original: str, findings: list[dict], rules: list[dict] | None = None
+) -> tuple[str, str]:
     issues = (
         "\n".join(
             f"- L{f.get('line')}: [{f.get('severity')}] {f.get('rule_id')} — {f.get('message')}"
@@ -355,12 +374,45 @@ def build_fix_prompt(path: str, original: str, findings: list[dict]) -> tuple[st
         )
         or "(sin hallazgos)"
     )
+    rules_block = (
+        "\n".join(
+            f"- {r.get('rule_id')} ({r.get('citation')}): "
+            f"{(r.get('content') or r.get('title') or '').strip()[:400]}"
+            for r in (rules or [])
+        )
+        or "(sin reglas adicionales — sigue las citadas en los hallazgos)"
+    )
     user = (
-        f"ARCHIVO: {path}\n\nHALLAZGOS A CORREGIR:\n{issues}\n\n"
+        f"ARCHIVO: {path}\n\nREGLAS RELEVANTES DEL BIMBOPS HANDBOOK:\n{rules_block}\n\n"
+        f"HALLAZGOS A CORREGIR:\n{issues}\n\n"
         f"CONTENIDO ACTUAL:\n```\n{original}\n```\n\n"
-        "Devuelve el archivo COMPLETO corregido en un solo bloque de código."
+        "Devuelve el archivo COMPLETO corregido (siguiendo el Handbook y pasando los "
+        "linters Ruff/sqlfluff) en un solo bloque de código."
     )
     return _FIX_SYSTEM, user
+
+
+def build_fix_retry_prompt(path: str, attempted: str, lint_output: str) -> tuple[str, str]:
+    """Pure: build the (system, user) for a second fix attempt after the first failed
+    the linter. `lint_output` is the raw Ruff/sqlfluff output from the shell."""
+    user = (
+        f"ARCHIVO: {path}\n\nTu intento anterior FALLÓ el linter con estos errores:\n"
+        f"{(lint_output or '').strip()[:2000]}\n\n"
+        f"CONTENIDO DEL INTENTO:\n```\n{attempted}\n```\n\n"
+        "Devuelve el archivo COMPLETO corregido (sin esos errores de linter y sin violar "
+        "el Handbook) en un solo bloque de código."
+    )
+    return _FIX_RETRY_SYSTEM, user
+
+
+def linter_for(path: str) -> str | None:
+    """Pure: which deterministic linter guards this file type. The fix shell runs it on
+    the generated fix so the bot never pushes lint-failing code. None = no lint gate."""
+    if path.endswith(".py"):
+        return "ruff"
+    if path.endswith(".sql"):
+        return "sqlfluff"
+    return None
 
 
 def extract_code(model_output: str) -> str | None:

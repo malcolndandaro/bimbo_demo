@@ -10,7 +10,7 @@ endpoint, then RE-READS the endpoint and reports exactly what is enforced (no
 over-claiming). The full governance suite (usage + PII/safety guardrails + rate
 limits + provider fallback) lives in `fm_gateway_config.json` and must be applied to
 a DEDICATED gateway endpoint fronting the foundation model — that's the production
-layer (see README.md). The shared `databricks-claude-sonnet-4-5` FMAPI endpoint
+layer (see README.md). The shared `databricks-claude-opus-4-8` FMAPI endpoint
 cannot be modified, so that gateway endpoint would front Claude as an external/served
 model.
 

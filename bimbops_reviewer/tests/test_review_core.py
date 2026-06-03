@@ -279,6 +279,32 @@ def test_build_fix_prompt_includes_findings_and_full_file_ask():
     assert "x.py" in user_p and "ENV-01" in user_p and "COMPLETO" in user_p
 
 
+def test_build_fix_prompt_includes_handbook_rules():
+    rules = [
+        {
+            "rule_id": "ENV-01",
+            "citation": "Handbook > Catalog-per-Env",
+            "content": "Sin refs cross-env",
+        }
+    ]
+    _, user_p = review_core.build_fix_prompt("x.py", "old = 1\n", [_valid()], rules)
+    assert "HANDBOOK" in user_p and "ENV-01" in user_p and "Sin refs cross-env" in user_p
+
+
+def test_build_fix_retry_prompt_includes_lint_errors():
+    sys_p, user_p = review_core.build_fix_retry_prompt("x.py", "import os, sys\n", "E401 imports")
+    assert "REINTENTO" in sys_p
+    assert "x.py" in user_p and "E401" in user_p
+    assert "import os, sys" in user_p
+
+
+def test_linter_for_by_extension():
+    assert review_core.linter_for("src/jobs/x.py") == "ruff"
+    assert review_core.linter_for("sql/q.sql") == "sqlfluff"
+    assert review_core.linter_for("README.md") is None
+    assert review_core.linter_for("databricks.yml") is None
+
+
 # --- eval scorer decisions (slice 09) --------------------------------------------
 def test_score_cross_env():
     env = [_valid(rule_id="ENV-01")]

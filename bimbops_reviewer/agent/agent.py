@@ -20,7 +20,7 @@ from mlflow.deployments import get_deploy_client
 from mlflow.pyfunc import ResponsesAgent
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 
-LLM_ENDPOINT = "databricks-claude-sonnet-4-5"
+LLM_ENDPOINT = "databricks-claude-opus-4-8"
 VS_INDEX = "bimbo_demo.dev.bimbops_handbook_rules_idx"
 VS_COLUMNS = ["rule_id", "title", "content", "citation", "severity_hint"]
 N_RULES = 8
