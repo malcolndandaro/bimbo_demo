@@ -114,10 +114,14 @@ def fm_fix(path: str, original: str, findings: list[dict], rules: list[dict]) ->
 
 
 def _run_linter(path: str) -> tuple[bool, str]:
-    """Run the deterministic linter guarding this file type ON THE FILE (uses the repo's
-    ruff/sqlfluff config). Returns (passed, combined_output). No linter → (True, "")."""
+    """Verify the generated fix against the deterministic gate ON THE FILE (repo config).
+    For Python, first APPLY `ruff format` (deterministic) so the fix is format-clean —
+    pr-checks runs BOTH `ruff check` AND `ruff format --check`, so a lint-clean-but-
+    unformatted fix would still fail CI. Returns (passed, combined_output)."""
     linter = review_core.linter_for(path)
     if linter == "ruff":
+        with contextlib.suppress(FileNotFoundError):
+            subprocess.run(["ruff", "format", path], capture_output=True, text=True)  # noqa: S603,S607
         cmd = ["ruff", "check", path]
     elif linter == "sqlfluff":
         cmd = ["sqlfluff", "lint", path]
