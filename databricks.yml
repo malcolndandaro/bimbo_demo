@@ -13,9 +13,11 @@ variables:
   agent_model_version:
     description: >-
       Versión del modelo UC bimbo_demo.dev.bimbops_reviewer a desplegar (config-only
-      redeploy). Vacío = alias @prod. Bump + `bundle deploy` + run del job de deploy
-      reapunta el endpoint a la nueva versión en sitio (sin recrear el endpoint).
-    default: ""
+      redeploy). `@prod` (default) = resolver el alias @prod; un número fija esa versión.
+      Bump + `bundle deploy` + run del job de deploy reapunta el endpoint en sitio.
+      NO usar "" — una variable vacía serializa a un elemento null en la lista de
+      Terraform y el provider hace panic (`parameters[<nil>] is not a string`).
+    default: "@prod"
 
 targets:
   dev:
