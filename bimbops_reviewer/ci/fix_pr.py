@@ -16,14 +16,13 @@ as the demo shortcut.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import pathlib
 import subprocess  # noqa: S404 — git CLI is required for the commit/push
 import sys
 
 import requests
-from databricks.sdk import WorkspaceClient
-from mlflow.deployments import get_deploy_client
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "agent"))
 import review_core  # noqa: E402 — sibling agent module; needs the sys.path insert above
@@ -54,6 +53,8 @@ def comment(body: str) -> None:
 
 
 def get_findings(diff: str) -> list[dict]:
+    from databricks.sdk import WorkspaceClient  # lazy: import errors stay inside main's guard
+
     w = WorkspaceClient()
     resp = w.api_client.do(
         "POST",
@@ -70,6 +71,8 @@ def get_findings(diff: str) -> list[dict]:
 
 
 def fm_fix(path: str, original: str, findings: list[dict]) -> str | None:
+    from mlflow.deployments import get_deploy_client  # lazy
+
     system, user = review_core.build_fix_prompt(path, original, findings)
     resp = get_deploy_client("databricks").predict(
         endpoint=LLM_ENDPOINT,
@@ -96,6 +99,11 @@ def main() -> None:
 
     pr = gh_get(f"/repos/{REPO}/pulls/{PR}")
     head_ref = pr["head"]["ref"]
+    head_repo = (pr.get("head", {}).get("repo") or {}).get("full_name")
+    base_repo = (pr.get("base", {}).get("repo") or {}).get("full_name")
+    if head_repo != base_repo:
+        comment("🤖 **BimbOps Bot**: el autofix no opera sobre PRs desde forks (seguridad).")
+        return
 
     try:
         perm = gh_get(f"/repos/{REPO}/collaborators/{ACTOR}/permission").get("permission", "none")
@@ -111,12 +119,11 @@ def main() -> None:
         return
 
     diff = _git("--no-pager", "diff", f"origin/{pr['base']['ref']}...HEAD").stdout
+    changed_files = {f["path"] for f in review_core.build_review_context(diff)["files"]}
     findings = get_findings(diff)
-    by_file: dict[str, list[dict]] = {}
-    for f in findings:
-        by_file.setdefault(f["file"], []).append(f)
+    by_file = review_core.select_fixable(findings, changed_files)  # confine to PR's changed files
     if not by_file:
-        comment("🤖 **BimbOps Bot**: no hay hallazgos que arreglar en este PR.")
+        comment("🤖 **BimbOps Bot**: no hay hallazgos aplicables en archivos de este PR.")
         return
 
     changed: dict[str, str] = {}
@@ -151,7 +158,8 @@ def main() -> None:
         "push", f"https://x-access-token:{BOT_TOKEN}@github.com/{REPO}.git", f"HEAD:{head_ref}"
     )
     if push.returncode != 0:
-        comment(f"🤖 **BimbOps Bot**: el push falló.\n```\n{push.stderr[:300]}\n```")
+        print(f"push failed: {push.stderr}")  # details to the secret-masked Actions log only
+        comment("🤖 **BimbOps Bot**: el push falló (ver logs del workflow).")
         return
     comment(
         f"🤖 **BimbOps Bot** aplicó arreglos en: `{files}`. "
@@ -164,4 +172,9 @@ if __name__ == "__main__":
         main()
     except Exception as e:  # noqa: BLE001 — fix mode must never fail the job
         print(f"fix degraded: {type(e).__name__}: {e}")
+        with contextlib.suppress(Exception):
+            comment(
+                "🤖 **BimbOps Bot**: no se pudo completar el autofix (ver logs); "
+                "el PR no se bloquea."
+            )
     sys.exit(0)

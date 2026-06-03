@@ -364,13 +364,34 @@ def build_fix_prompt(path: str, original: str, findings: list[dict]) -> tuple[st
 
 
 def extract_code(model_output: str) -> str | None:
-    """Pull the corrected file content out of the model's fenced code block."""
-    if not isinstance(model_output, str) or not model_output.strip():
+    """Pull the corrected file content out of the model's fenced code block.
+
+    Requires a ```fenced``` block — prose without a fence is treated as malformed
+    (returns None) so the bot never pushes raw model chatter as file content.
+    """
+    if not isinstance(model_output, str):
         return None
     m = _FENCE.search(model_output)
-    code = m.group("code") if m else model_output.strip()
-    code = code.rstrip("\n")
+    if not m:
+        return None
+    code = m.group("code").rstrip("\n")
     return (code + "\n") if code.strip() else None
+
+
+def select_fixable(findings: list[dict], changed_files: set[str]) -> dict[str, list[dict]]:
+    """Group findings by file, CONFINED to the PR's changed files.
+
+    Security: finding `file` paths come from (untrusted) model output, so the bot
+    must never rewrite a path the PR didn't touch. Also rejects absolute or
+    parent-escaping paths.
+    """
+    by_file: dict[str, list[dict]] = {}
+    for f in findings or []:
+        path = f.get("file") if isinstance(f, dict) else None
+        if not path or path.startswith("/") or ".." in path or path not in changed_files:
+            continue
+        by_file.setdefault(path, []).append(f)
+    return by_file
 
 
 def validate_content(path: str, content: str | None) -> tuple[bool, str]:

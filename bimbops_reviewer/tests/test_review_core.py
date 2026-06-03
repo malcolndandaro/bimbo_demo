@@ -244,11 +244,22 @@ def test_extract_code_from_fence():
     assert review_core.extract_code("Claro:\n```python\nx = 1\n```\nlisto") == "x = 1\n"
 
 
-def test_extract_code_raw_and_empty():
-    assert review_core.extract_code("x = 2") == "x = 2\n"
+def test_extract_code_requires_fence():
+    assert review_core.extract_code("x = 2") is None  # no fence → rejected, not raw-accepted
+    assert review_core.extract_code("```\ny = 3\n```") == "y = 3\n"
     assert review_core.extract_code("") is None
-    assert review_core.extract_code("   ") is None
     assert review_core.extract_code(None) is None
+
+
+def test_select_fixable_confines_to_changed_files():
+    findings = [
+        _valid(file="src/a.py"),
+        _valid(file="src/b.py"),
+        _valid(file="../evil.py"),
+        _valid(file="/etc/passwd"),
+    ]
+    out = review_core.select_fixable(findings, {"src/a.py"})
+    assert set(out) == {"src/a.py"}  # b.py unchanged; ../ and /abs rejected
 
 
 def test_validate_content_python():
