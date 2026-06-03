@@ -44,6 +44,11 @@ jobs:
         with:
           ref: ${{ steps.head.outputs.ref }}
           fetch-depth: 0
+          # CRITICAL: don't persist GITHUB_TOKEN as an http.extraheader. Otherwise it
+          # overrides the bot PAT on push, the push authenticates as GITHUB_TOKEN, and
+          # GitHub suppresses workflow runs for GITHUB_TOKEN pushes — breaking the
+          # /bimbops-fix → re-review loop. The bot pushes with its own token via the URL.
+          persist-credentials: false
 
       - name: Install deps
         run: python3 -m pip install --quiet --disable-pip-version-check databricks-sdk requests mlflow || true
