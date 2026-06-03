@@ -1,10 +1,11 @@
 """CI entrypoint: query the BimbOps Reviewer endpoint for a PR and post a comment.
 
-Slice 04: sends the PR diff to the `bimbops-reviewer` Model Serving endpoint,
-which returns structured findings (Finding contract) grounded in the BimbOps
-Handbook; renders them as one Spanish summary comment. Advisory only — never
-hard-fails the PR (an endpoint error posts a neutral note and exits 0; story 9).
-Severity gating / Check Run lands in slice 05.
+Sends the PR diff to the `bimbops-reviewer` Model Serving endpoint, which returns
+structured findings (Finding contract) grounded in the BimbOps Handbook; posts a
+Spanish summary comment AND a severity-gated "BimbOps Reviewer" Check Run
+(BLOCKER → failure, which blocks merge once the check is required; else neutral).
+The CI step itself never hard-fails the PR (exits 0; the gate is the Check Run
+conclusion, not the job exit) — user story 9.
 
 Auth: OAuth M2M (DATABRICKS_CLIENT_ID/SECRET) — OIDC federation is the documented
 target but is blocked in the shared FE workspace (no account-admin). See ADR-0001.
@@ -106,8 +107,8 @@ def render_comment(payload: dict) -> str:
         lines.append("")
     n_block = sum(1 for f in findings if f.get("severity") == "BLOCKER")
     lines.append(
-        f"---\n_{len(findings)} hallazgo(s), {n_block} BLOCKER. "
-        "Revisión asesora — no bloquea el merge (el gate de severidad llega en la slice 05)._"
+        f"---\n_{len(findings)} hallazgo(s), {n_block} BLOCKER. Los BLOCKER ponen el "
+        "check «BimbOps Reviewer» en rojo; las sugerencias son asesoras y no bloquean._"
     )
     return "\n".join(lines)
 

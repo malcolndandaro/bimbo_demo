@@ -296,8 +296,9 @@ def to_check_run(findings: list[dict], decision: dict) -> dict:
                 "start_line": line,
                 "end_line": line,
                 "annotation_level": _ANNOTATION_LEVEL[f["severity"]],
-                "title": f"{f['severity']} · {f.get('rule_id', '')}".strip(" ·"),
-                "message": msg or f["severity"],
+                # GitHub limits: title ≤ 255 chars, message ≤ 64KB (else 422s the whole run)
+                "title": f"{f['severity']} · {f.get('rule_id', '')}".strip(" ·")[:255],
+                "message": (msg or f["severity"])[:65000],
             }
         )
     summary = decision.get("summary", "")
