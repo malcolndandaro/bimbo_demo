@@ -277,3 +277,24 @@ def test_build_fix_prompt_includes_findings_and_full_file_ask():
     sys_p, user_p = review_core.build_fix_prompt("x.py", "old = 1\n", [_valid(message="m1")])
     assert "MODO ARREGLO" in sys_p
     assert "x.py" in user_p and "ENV-01" in user_p and "COMPLETO" in user_p
+
+
+# --- eval scorer decisions (slice 09) --------------------------------------------
+def test_score_cross_env():
+    env = [_valid(rule_id="ENV-01")]
+    assert review_core.score_cross_env(env, True) is True
+    assert review_core.score_cross_env(env, False) is False
+    assert review_core.score_cross_env([], True) is False  # missed → fail
+    assert review_core.score_cross_env([], False) is True  # correctly absent
+
+
+def test_score_transform():
+    assert review_core.score_transform([_valid(rule_id="TP-02")], True) is True
+    assert review_core.score_transform([_valid(rule_id="ENV-01")], True) is False  # wrong rule
+    assert review_core.score_transform([], False) is True
+
+
+def test_score_no_false_positives():
+    assert review_core.score_no_false_positives([], True) is True  # clean + none → pass
+    assert review_core.score_no_false_positives([_valid()], True) is False  # clean + finding → FP
+    assert review_core.score_no_false_positives([_valid()], False) is True  # not clean → n/a

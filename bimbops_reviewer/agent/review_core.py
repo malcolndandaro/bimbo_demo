@@ -413,3 +413,32 @@ def validate_content(path: str, content: str | None) -> tuple[bool, str]:
         except Exception as e:  # noqa: BLE001 — any parse error = invalid YAML
             return False, f"YAML inválido: {e}"
     return True, ""
+
+
+# --- Core 6: eval scorer decisions (slice 09) — pure, unit-testable --------------
+def has_rule(findings: list[dict], rule_id: str) -> bool:
+    return any(isinstance(f, dict) and f.get("rule_id") == rule_id for f in (findings or []))
+
+
+def has_rule_prefix(findings: list[dict], prefix: str) -> bool:
+    return any(
+        isinstance(f, dict) and str(f.get("rule_id", "")).startswith(prefix)
+        for f in (findings or [])
+    )
+
+
+def score_cross_env(findings: list[dict], expected: bool) -> bool:
+    """Caught-cross-env: ENV-01 presence must match the expectation."""
+    return has_rule(findings, "ENV-01") == bool(expected)
+
+
+def score_transform(findings: list[dict], expected: bool) -> bool:
+    """Flagged-transform: a TP-* finding's presence must match the expectation."""
+    return has_rule_prefix(findings, "TP-") == bool(expected)
+
+
+def score_no_false_positives(findings: list[dict], is_clean: bool) -> bool:
+    """Zero-false-positives: on clean code, require no findings; else not applicable."""
+    if not is_clean:
+        return True
+    return len(findings or []) == 0
