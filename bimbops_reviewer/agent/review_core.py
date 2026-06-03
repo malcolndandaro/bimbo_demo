@@ -319,3 +319,76 @@ def to_check_run(findings: list[dict], decision: dict) -> dict:
             "annotations": annotations,
         },
     }
+
+
+# --- Core 5: fix mode (slice 06) -------------------------------------------------
+# The fix shell asks the FM for the COMPLETE corrected file (robust vs fragile
+# unified-diff application), then validates it parses before the bot pushes.
+_WRITE_PERMS = ("write", "maintain", "admin")
+_FIX_SYSTEM = (
+    "Eres el BimbOps Reviewer en MODO ARREGLO. Recibes el contenido COMPLETO de un "
+    "archivo y una lista de hallazgos del BimbOps Handbook. Devuelve el contenido "
+    "COMPLETO y corregido del archivo, resolviendo los hallazgos y preservando el "
+    "resto del código y su comportamiento. No expliques nada: devuelve SOLO el "
+    "archivo corregido dentro de un único bloque ```...``` (sin texto fuera del bloque)."
+)
+_FENCE = re.compile(r"```[a-zA-Z0-9_+.-]*\n(?P<code>.*?)```", re.S)
+
+
+def is_authorized(permission: str, branch_is_protected: bool) -> tuple[bool, str]:
+    """ADR-0003 authz: only write/maintain/admin collaborators may trigger a fix,
+    and never on a protected branch. `permission` is the GitHub collaborator role.
+    """
+    if branch_is_protected:
+        return False, "La rama destino está protegida; el bot no escribe en ramas protegidas."
+    if permission not in _WRITE_PERMS:
+        return False, f"Permiso insuficiente ('{permission}'); se requiere write/maintain/admin."
+    return True, ""
+
+
+def build_fix_prompt(path: str, original: str, findings: list[dict]) -> tuple[str, str]:
+    issues = (
+        "\n".join(
+            f"- L{f.get('line')}: [{f.get('severity')}] {f.get('rule_id')} — {f.get('message')}"
+            + (f" (sugerencia: {f['suggestion']})" if f.get("suggestion") else "")
+            for f in findings
+        )
+        or "(sin hallazgos)"
+    )
+    user = (
+        f"ARCHIVO: {path}\n\nHALLAZGOS A CORREGIR:\n{issues}\n\n"
+        f"CONTENIDO ACTUAL:\n```\n{original}\n```\n\n"
+        "Devuelve el archivo COMPLETO corregido en un solo bloque de código."
+    )
+    return _FIX_SYSTEM, user
+
+
+def extract_code(model_output: str) -> str | None:
+    """Pull the corrected file content out of the model's fenced code block."""
+    if not isinstance(model_output, str) or not model_output.strip():
+        return None
+    m = _FENCE.search(model_output)
+    code = m.group("code") if m else model_output.strip()
+    code = code.rstrip("\n")
+    return (code + "\n") if code.strip() else None
+
+
+def validate_content(path: str, content: str | None) -> tuple[bool, str]:
+    """Deterministic post-fix validation: the corrected file must still parse."""
+    if not content or not content.strip():
+        return False, "contenido vacío"
+    if path.endswith(".py"):
+        try:
+            compile(content, path, "exec")
+        except SyntaxError as e:
+            return False, f"SyntaxError: {e}"
+    elif path.endswith((".yml", ".yaml")):
+        try:
+            import yaml
+
+            yaml.safe_load(content)
+        except ImportError:
+            pass  # no yaml on the runner — skip (non-empty already checked)
+        except Exception as e:  # noqa: BLE001 — any parse error = invalid YAML
+            return False, f"YAML inválido: {e}"
+    return True, ""

@@ -228,3 +228,41 @@ def test_to_check_run_caps_at_50_with_overflow_note():
     cr = review_core.to_check_run(findings, review_core.decide_gate(findings))
     assert len(cr["output"]["annotations"]) == 50
     assert "no anotados" in cr["output"]["summary"]
+
+
+# --- fix mode (slice 06) ---------------------------------------------------------
+def test_is_authorized_matrix():
+    assert review_core.is_authorized("write", False)[0] is True
+    assert review_core.is_authorized("admin", False)[0] is True
+    assert review_core.is_authorized("maintain", False)[0] is True
+    assert review_core.is_authorized("read", False)[0] is False  # insufficient permission
+    assert review_core.is_authorized("triage", False)[0] is False
+    assert review_core.is_authorized("write", True)[0] is False  # protected branch
+
+
+def test_extract_code_from_fence():
+    assert review_core.extract_code("Claro:\n```python\nx = 1\n```\nlisto") == "x = 1\n"
+
+
+def test_extract_code_raw_and_empty():
+    assert review_core.extract_code("x = 2") == "x = 2\n"
+    assert review_core.extract_code("") is None
+    assert review_core.extract_code("   ") is None
+    assert review_core.extract_code(None) is None
+
+
+def test_validate_content_python():
+    assert review_core.validate_content("a.py", "def f():\n    return 1\n")[0] is True
+    bad, err = review_core.validate_content("a.py", "def f(:\n")
+    assert bad is False and "SyntaxError" in err
+
+
+def test_validate_content_empty_and_sql():
+    assert review_core.validate_content("a.py", "")[0] is False
+    assert review_core.validate_content("q.sql", "SELECT 1\n")[0] is True
+
+
+def test_build_fix_prompt_includes_findings_and_full_file_ask():
+    sys_p, user_p = review_core.build_fix_prompt("x.py", "old = 1\n", [_valid(message="m1")])
+    assert "MODO ARREGLO" in sys_p
+    assert "x.py" in user_p and "ENV-01" in user_p and "COMPLETO" in user_p
