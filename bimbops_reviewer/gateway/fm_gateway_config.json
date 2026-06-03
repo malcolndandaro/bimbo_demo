@@ -1,0 +1,19 @@
+{
+  "usage_tracking_config": { "enabled": true },
+  "inference_table_config": {
+    "enabled": true,
+    "catalog_name": "bimbo_demo",
+    "schema_name": "dev",
+    "table_name_prefix": "bimbops_reviewer"
+  },
+  "rate_limits": [
+    { "calls": 60, "key": "endpoint", "renewal_period": "minute" },
+    { "calls": 20, "key": "user", "renewal_period": "minute" }
+  ],
+  "guardrails": {
+    "input": {
+      "pii": { "behavior": "BLOCK" },
+      "safety": true
+    }
+  }
+}
