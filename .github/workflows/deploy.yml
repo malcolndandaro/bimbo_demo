@@ -12,6 +12,12 @@ on:
 permissions:
   contents: read
 
+# One deploy pipeline per branch: prevents a second push from double-queuing the
+# qa/prod approvals or racing a stale commit to prod behind a parked gate.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # never kill an approved, mid-deploy run
+
 jobs:
   deploy-dev:
     name: Deploy dev + serverless integration tests
