@@ -43,14 +43,13 @@ jobs:
         run: sqlfluff lint sql/
 
   # ── databricks bundle validate ─────────────────────────────────────────────
-  # Solo corre si las variables DATABRICKS_HOST / DATABRICKS_SP_CLIENT_ID
-  # están configuradas en el repo. Auth real es vía OIDC Workload Identity
-  # Federation — sin client_secret.
+  # Solo corre si la variable DATABRICKS_HOST está configurada en el repo.
+  # Auth a Databricks vía PAT (token personal) en el workspace fevm-malcoln-aws-stable.
   #
   # Para habilitar:
-  #   gh variable set DATABRICKS_HOST -b "https://<workspace>"
-  #   gh variable set DATABRICKS_SP_CLIENT_ID -b "<sp-client-id>"
-  # Y registrar federation policy en Databricks (ver auth_oidc_for_ci.md).
+  #   gh variable set DATABRICKS_HOST -b "https://fevm-malcoln-aws-stable.cloud.databricks.com"
+  #   gh secret   set DATABRICKS_TOKEN -b "<PAT del workspace>"
+  # El runner self-hosted debe tener IP allowlisted en el workspace (IP ACL activo).
   bundle-validate:
     name: databricks bundle validate
     # Self-hosted (MacBook): allowlisted IP for the workspace (hosted runners are IP-ACL-blocked).
@@ -58,9 +57,7 @@ jobs:
     if: vars.DATABRICKS_HOST != ''
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_AUTH_TYPE: oauth-m2m
-      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
-      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: databricks/setup-cli@main
