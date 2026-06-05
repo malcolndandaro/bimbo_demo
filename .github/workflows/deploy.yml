@@ -24,7 +24,10 @@ concurrency:
 
 jobs:
   deploy-dev:
-    name: Deploy dev + serverless integration tests
+    name: Promote to shared dev
+    # Promotion only: deployability + the serverless integration tests already ran (and
+    # gated the merge) on the PR via pr-checks → "integration" job, against an isolated
+    # per-PR dev. Post-merge just promotes the proven change to the SHARED dev.
     # Self-hosted (MacBook): IP-allowlisted; hosted runners are rejected by the workspace IP ACL.
     runs-on: self-hosted
     if: vars.DATABRICKS_HOST != ''
@@ -33,18 +36,11 @@ jobs:
       DATABRICKS_AUTH_TYPE: oauth-m2m
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
       DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
-      BIMBO_TEST_SCHEMA: dev
     steps:
       - uses: actions/checkout@v4
       - uses: databricks/setup-cli@main
-      - name: Deploy bundle to dev
+      - name: Deploy bundle to shared dev
         run: databricks bundle deploy -t dev
-      - name: Serverless integration tests
-        run: |
-          python3 -m venv .venv-it
-          . .venv-it/bin/activate
-          pip install --quiet --disable-pip-version-check "databricks-connect>=15.4,<16" "databricks-sdk>=0.30" pytest
-          pytest tests/ -v --tb=short
 
   deploy-qa:
     name: Promote to qa (manual approval)

@@ -70,3 +70,36 @@ jobs:
         run: databricks bundle validate -t qa
       - name: Validate bundle (prd target)
         run: databricks bundle validate -t prd
+
+  # ── Pre-merge deploy + integration tests (the gate that keeps main deployable) ──
+  # Proves the PR ACTUALLY deploys + passes integration tests BEFORE it can merge — not
+  # after (which is how a merged commit could leave main broken). Deploys to an ISOLATED
+  # per-PR dev path (dev_suffix=-pr<N>) so concurrent PRs never collide, runs the serverless
+  # integration tests against the shared seed, then tears the ephemeral deployment down.
+  # Make this a REQUIRED status check on main (branch protection) so it actually blocks merge.
+  # Post-merge deploy.yml then promotes to the shared dev → qa → prod (gated).
+  # PR-only: push:main is handled by deploy.yml.
+  integration:
+    name: deploy + integration tests (dev)
+    if: github.event_name == 'pull_request' && vars.DATABRICKS_HOST != ''
+    runs-on: self-hosted
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      BIMBO_TEST_SCHEMA: dev
+      PR_SUFFIX: "-pr${{ github.event.pull_request.number }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Deploy PR to an isolated dev path
+        run: databricks bundle deploy -t dev --var="dev_suffix=${PR_SUFFIX}"
+      - name: Serverless integration tests
+        run: |
+          python3 -m venv .venv-it && . .venv-it/bin/activate
+          pip install --quiet --disable-pip-version-check "databricks-connect>=15.4,<16" "databricks-sdk>=0.30" pytest
+          pytest tests/ -v --tb=short
+      - name: Tear down the ephemeral PR deployment
+        if: always()
+        run: databricks bundle destroy -t dev --var="dev_suffix=${PR_SUFFIX}" --auto-approve || true

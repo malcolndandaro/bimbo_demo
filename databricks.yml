@@ -18,6 +18,12 @@ variables:
       NO usar "" — una variable vacía serializa a un elemento null en la lista de
       Terraform y el provider hace panic (`parameters[<nil>] is not a string`).
     default: "@prod"
+  dev_suffix:
+    description: >-
+      Sufijo opcional para AISLAR el deploy de dev por PR en el gate pre-merge de CI
+      (p. ej. "-pr123"). Así cada PR despliega a una ruta efímera propia y los tests de
+      integración corren sin pisar el dev compartido ni a otros PRs. Vacío = dev normal.
+    default: ""
 
 targets:
   dev:
@@ -25,6 +31,9 @@ targets:
     default: true
     workspace:
       host: https://fevm-malcoln-aws-stable.cloud.databricks.com
+      # Per-PR isolation in CI: the pre-merge gate passes --var dev_suffix=-pr<N> so each
+      # PR deploys to its own path (no collisions). Empty suffix = the normal shared dev.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/dev${var.dev_suffix}
     variables:
       catalog: bimbo
       schema: dev
@@ -37,7 +46,9 @@ targets:
       catalog: bimbo
       schema: qa
     run_as:
-      user_name: malcoln.dandaro@databricks.com   # En Bimbo: SP sp-bimbops-bakery-qa
+      # The CI SP is NOT a workspace admin, so it can only set run_as to itself (a non-admin
+      # setting run_as to another user errors at deploy). En Bimbo prod: SP sp-bimbops-bakery-qa.
+      service_principal_name: bcc03e5e-15fd-47a2-8da4-ccc3edce34d4
 
   prd:
     mode: production
@@ -47,4 +58,5 @@ targets:
       catalog: bimbo
       schema: prod
     run_as:
-      user_name: malcoln.dandaro@databricks.com   # En Bimbo: SP sp-bimbops-bakery-prd
+      # Non-admin SP → run_as itself. En Bimbo prod: SP sp-bimbops-bakery-prd.
+      service_principal_name: bcc03e5e-15fd-47a2-8da4-ccc3edce34d4
