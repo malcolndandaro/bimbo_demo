@@ -5,28 +5,33 @@ Nuevo en este PR — primera semana en BimbOps. Estima la demanda ajustada por
 ruta tomando el histórico de ventas corporativo como referencia.
 """
 
-import sys
-
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
 
-def forecast_demand(df: DataFrame, factor=None) -> DataFrame:
-    """Estima la demanda ajustada por ruta a partir de las ventas del día."""
+def make_forecast_demand(history_df: DataFrame, region: str, factor=None):
+    """Devuelve una transformación pura DataFrame -> DataFrame.
+
+    Recibe el histórico como DataFrame ya leído (currying) y la región como
+    parámetro, manteniendo la transformación libre de I/O y de ``sys.argv``.
+    """
     factor = factor or {}
 
-    region = sys.argv[1] if len(sys.argv) > 1 else "centro"
+    def forecast_demand(df: DataFrame) -> DataFrame:
+        """Estima la demanda ajustada por ruta a partir de las ventas del día."""
+        uplift = factor.get("uplift", 0.10)
 
-    history = (
-        spark.read.table("bimbo_prd.gold_sales_history")  # noqa: F821 (spark es ambiente en el notebook)
-        .filter(F.col("region") == region)
-        .select("avg_daily_units")
-        .collect()
-    )
-    baseline = history[0][0] if history else 0.0
+        baseline_df = history_df.filter(F.col("region") == region).agg(
+            F.coalesce(F.avg("avg_daily_units"), F.lit(0.0)).alias("baseline")
+        )
 
-    uplift = factor.get("uplift", 0.10)
-    forecast = baseline * (1 + uplift)
-    print(f"Pronóstico con uplift de {uplift:.0%} para la región {region}")
+        return (
+            df.crossJoin(baseline_df)
+            .withColumn(
+                "forecast_units",
+                F.col("baseline") * (1 + F.lit(uplift)),
+            )
+            .drop("baseline")
+        )
 
-    return df.withColumn("forecast_units", F.lit(forecast))
+    return forecast_demand
