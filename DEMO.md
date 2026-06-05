@@ -2,14 +2,14 @@
 
 > **Audience:** Grupo Bimbo's BimbOps platform team (owner: **Roberto Adela**; exec sponsor: **Paco**, likely async). **Presenter:** Malcoln Dandaro (Databricks STS).
 > **Duration:** ~60 min. **Everything in this demo is in Spanish** (comments, agent output) — narrate in Spanish to match.
-> **Workspace:** `https://e2-demo-field-eng.cloud.databricks.com` · **Repo:** `github.com/malcolndandaro/bimbo_demo` (public).
+> **Workspace:** `https://fevm-malcoln-aws-stable.cloud.databricks.com` (profile `malcoln-aws-stable`) · **Catalog:** `bimbo` · **Repo:** `github.com/malcolndandaro/bimbo_demo` (public). CI service principal: `bcc03e5e-15fd-47a2-8da4-ccc3edce34d4` (M2M).
 > If a resource is missing/broken before the demo, see **`REBUILD.md`** (in your local `/bimbo` workspace, private).
 
 ---
 
 ## What we built (read this if you've lost the thread)
 
-A single **continuous E2E CI/CD pipeline** on the live `bimbo_demo` repo, whose new hero is the **BimbOps Reviewer** — a custom AI code reviewer that runs as a governed Databricks asset:
+A single **continuous E2E CI/CD pipeline** on the live `bimbo` repo, whose new hero is the **BimbOps Reviewer** — a custom AI code reviewer that runs as a governed Databricks asset:
 
 - It's an **MLflow `ResponsesAgent` on Model Serving** (endpoint `bimbops-reviewer`), grounded on the **BimbOps Handbook** (22 standards rules) via **Vector Search**, powered by **Claude** (`databricks-claude-sonnet-4-5`).
 - On every PR it posts **cited findings in Spanish** + a **`BimbOps Reviewer` Check Run** that gates the merge by severity (only BLOCKER blocks).
@@ -31,8 +31,8 @@ A single **continuous E2E CI/CD pipeline** on the live `bimbo_demo` repo, whose 
 - [ ] **Self-hosted runner `macos-bimbo` is UP** and listening (GitHub → repo → Settings → Actions → Runners shows it green). Every Databricks-touching job needs it; hosted runners are IP-ACL-blocked. Start it with `./run.sh` from `~/Work/Projects/actions-runner` if offline.
 - [ ] **Serving endpoint `bimbops-reviewer` is warm/READY.** Check: `databricks serving-endpoints get bimbops-reviewer` → `state.ready=READY`, v3 @ 100%. `scale_to_zero=false`, so it should stay warm — but hit it once to be sure.
 - [ ] **Logged into GitHub UI as `malcolndandaro`** in the browser (EMU: approvals and merges go through the UI as this identity, not `gh` as the corporate account).
-- [ ] **Vector Search `bimbops-vs` ONLINE**, index `bimbops_handbook_rules_idx` ready (22 rows). `databricks vector-search-indexes get-index bimbo_demo.dev.bimbops_handbook_rules_idx`.
-- [ ] **Workspace reachable** and you're authenticated (`DATABRICKS_AUTH_STORAGE=plaintext` profile against `e2-demo-field-eng`).
+- [ ] **Vector Search `bimbops-vs` ONLINE**, index `bimbops_handbook_rules_idx` ready (22 rows). `databricks vector-search-indexes get-index bimbo.dev.bimbops_handbook_rules_idx`.
+- [ ] **Workspace reachable** and you're authenticated (`DATABRICKS_AUTH_STORAGE=plaintext` profile against `fevm-malcoln-aws-stable`).
 - [ ] **GitHub Environments `qa` and `prod`** exist with `malcolndandaro` as required reviewer.
 - [ ] **Secrets present** in the repo: `DATABRICKS_CLIENT_SECRET`, `BIMBOPS_BOT_TOKEN`. Vars: `DATABRICKS_HOST`, `DATABRICKS_SP_CLIENT_ID`.
 - [ ] **[PREP] Backup recording ready.** Per Session-1 precedent (and for Paco watching async), have a pre-recorded full run cued so a live failure never sinks the meeting.
@@ -98,20 +98,20 @@ A single **continuous E2E CI/CD pipeline** on the live `bimbo_demo` repo, whose 
 
 - **Do:** open Actions → the `deploy` run. Watch `deploy-dev`.
 - **URL:** `https://github.com/malcolndandaro/bimbo_demo/actions`
-- **Say:** "Al mergear a `main`, arranca el deploy. Primero `dev`: `databricks bundle deploy -t dev` y luego los **tests de integración en serverless** con Databricks Connect contra `bimbo_demo.dev`. Si fallan, no avanza."
+- **Say:** "Al mergear a `main`, arranca el deploy. Primero `dev`: `databricks bundle deploy -t dev` y luego los **tests de integración en serverless** con Databricks Connect contra `bimbo.dev`. Si fallan, no avanza."
 - **Expected:** `deploy-dev` green; pipeline pauses at the **qa** environment gate. *(If the run sits `queued`, the self-hosted runner is asleep — wake it.)*
 
 ### Step 7 — Approve the qa gate (hand Roberto the button)
 
 - **Do:** in the Actions run, the `deploy-qa` job shows **"Review pending"**. Click **Review deployments → qa → Approve and deploy** (UI, as `malcolndandaro` — or literally hand the screen to Roberto).
 - **Say (to Roberto):** "Roberto, este botón es tuyo. Hoy esta validación de release cae sobre ti manualmente — aquí es un gate explícito, auditable, con el agente como primer filtro antes de tu aprobación."
-- **Expected:** `deploy-qa` runs `bundle deploy -t qa` (schema `bimbo_demo.qa`); pipeline pauses at the **prod** gate.
+- **Expected:** `deploy-qa` runs `bundle deploy -t qa` (schema `bimbo.qa`); pipeline pauses at the **prod** gate.
 
 ### Step 8 — Approve the prod gate
 
 - **Do:** approve the **prod** environment gate the same way.
-- **Say:** "Y aquí prod. Es seguro correrlo en vivo porque el demo usa **schema-per-env** en un catálogo sandbox (`bimbo_demo.prod`). En Bimbo la recomendación Future-State es **catalog-per-env** real (`bimbo_prd`) — mismo patrón, aislamiento más fuerte."
-- **Expected:** `deploy-prod` runs `bundle deploy -t prd` → deploys to `bimbo_demo.prod`. Full cascade green.
+- **Say:** "Y aquí prod. Es seguro correrlo en vivo porque el demo usa **schema-per-env** en un catálogo sandbox (`bimbo.prod`). En Bimbo la recomendación Future-State es **catalog-per-env** real (`bimbo_prd`) — mismo patrón, aislamiento más fuerte."
+- **Expected:** `deploy-prod` runs `bundle deploy -t prd` → deploys to `bimbo.prod`. Full cascade green.
 
 ---
 
@@ -119,7 +119,7 @@ A single **continuous E2E CI/CD pipeline** on the live `bimbo_demo` repo, whose 
 
 ### A. AI Gateway / cost-per-PR
 
-- **Do:** show the inference table `bimbo_demo.dev.bimbops_reviewer_payload` (or run `python bimbops_reviewer/gateway/cost_report.py`).
+- **Do:** show the inference table `bimbo.dev.bimbops_reviewer_payload` (or run `python bimbops_reviewer/gateway/cost_report.py`).
 - **Say:** "Cada revisión queda **registrada y trazada** vía AI Gateway. Podemos sacar reviews/día, latencia y costo estimado por PR." **Be honest:** the agent endpoint supports **inference-table logging only**; the full governance suite (rate limits, PII guardrails, usage tracking, fallback) is for a dedicated FM gateway endpoint. The token/USD figures in the report are an illustrative lower bound, not real billing.
 
 ### B. MLflow eval harness
