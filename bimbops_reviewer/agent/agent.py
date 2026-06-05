@@ -12,6 +12,8 @@ base powers Q&A and review" loop.
 from __future__ import annotations
 
 import json
+import os
+import re
 
 import mlflow
 import review_core
@@ -24,6 +26,11 @@ LLM_ENDPOINT = "databricks-claude-opus-4-8"
 VS_INDEX = "bimbo.dev.bimbops_handbook_rules_idx"
 VS_COLUMNS = ["rule_id", "title", "content", "citation", "severity_hint"]
 N_RULES = 8
+# When set, the reviewer CONSULTS the BimbOps Knowledge Assistant (agent-to-agent) for the
+# relevant handbook rules instead of querying Vector Search directly — "one handbook brain,
+# two faces" (humans chat with the KA; the gate consults it). Empty = query VS directly.
+# Falls back to VS automatically if the KA call fails or returns nothing (gate never degrades).
+KA_ENDPOINT = os.environ.get("KA_ENDPOINT", "")
 
 
 def _input_text(req: ResponsesAgentRequest) -> str:
@@ -40,8 +47,8 @@ def _input_text(req: ResponsesAgentRequest) -> str:
     return "\n".join(parts)
 
 
-def _retrieve_rules(query_text: str) -> list[dict]:
-    """Query the handbook Vector Search index for diff-relevant rules."""
+def _retrieve_via_vs(query_text: str) -> list[dict]:
+    """Query the handbook Vector Search index directly for diff-relevant rules."""
     w = WorkspaceClient()
     res = w.vector_search_indexes.query_index(
         index_name=VS_INDEX,
@@ -52,6 +59,65 @@ def _retrieve_rules(query_text: str) -> list[dict]:
     rows = (res.result.data_array if res.result else None) or []
     # trailing score column is intentionally dropped (5 cols vs 6-element row)
     return [dict(zip(VS_COLUMNS, row, strict=False)) for row in rows]
+
+
+_KA_PROMPT = (
+    "Eres el BimbOps Handbook. Para el CÓDIGO de un PR de abajo, devuelve SOLO un JSON array "
+    "(sin texto fuera del JSON) de las reglas del handbook RELEVANTES (máximo 8). Cada elemento "
+    'EXACTAMENTE: {"rule_id":"", "title":"", "content":"<texto de la regla>", "citation":"", '
+    '"severity_hint":"BLOCKER|SUGGESTION|STYLE"}. Usa SOLO reglas reales del handbook (rule_id '
+    "como ENV-01, TP-02, SQL-01, etc.) con su contenido y cita textuales.\n\nCÓDIGO:\n"
+)
+
+
+def _ka_text(resp: dict) -> str:
+    """Extract the assistant text from a KA serving response (chat or responses shape)."""
+    try:
+        return resp["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        pass
+    parts = [
+        c.get("text", "")
+        for it in (resp.get("output") or [])
+        for c in (it.get("content") or [])
+        if isinstance(c, dict)
+    ]
+    return "".join(parts) or str(resp)
+
+
+def _retrieve_via_ka(query_text: str) -> list[dict]:
+    """Ask the BimbOps Knowledge Assistant which handbook rules apply (agent-to-agent).
+    Returns validated rule dicts (real rule_ids only); [] if the KA gives nothing usable."""
+    resp = get_deploy_client("databricks").predict(
+        endpoint=KA_ENDPOINT,
+        inputs={
+            "messages": [{"role": "user", "content": _KA_PROMPT + query_text[:2000]}],
+            "max_tokens": 1500,
+        },
+    )
+    parsed = review_core.loads_tolerant(_ka_text(resp))
+    items = parsed if isinstance(parsed, list) else (parsed or {}).get("rules", [])
+    rules: list[dict] = []
+    for r in items:
+        # Validate: keep only well-formed, real-looking rule_ids — a hallucinated id is dropped
+        # here, and downstream parse_findings only cites rule_ids from the rules we pass on.
+        if isinstance(r, dict) and re.fullmatch(r"[A-Z]{2,4}-\d{1,3}", str(r.get("rule_id", ""))):
+            rules.append({k: r.get(k, "") for k in VS_COLUMNS})
+    return rules[:N_RULES]
+
+
+def _retrieve_rules(query_text: str) -> list[dict]:
+    """Consult the Knowledge Assistant when configured (KA_ENDPOINT), else query VS directly.
+    Falls back to VS if the KA is unavailable or returns nothing — the gate never degrades."""
+    if KA_ENDPOINT:
+        try:
+            rules = _retrieve_via_ka(query_text)
+            if rules:
+                return rules
+            print("KA returned no usable rules — falling back to Vector Search")
+        except Exception as e:  # noqa: BLE001 — never let the KA take down the gate
+            print(f"KA retrieval degraded ({type(e).__name__}: {e}); falling back to Vector Search")
+    return _retrieve_via_vs(query_text)
 
 
 def _call_llm(system: str, user: str) -> str:
