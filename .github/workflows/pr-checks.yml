@@ -43,12 +43,13 @@ jobs:
         run: sqlfluff lint sql/
 
   # ── databricks bundle validate ─────────────────────────────────────────────
-  # Solo corre si la variable DATABRICKS_HOST está configurada en el repo.
-  # Auth a Databricks vía PAT (token personal) en el workspace fevm-malcoln-aws-stable.
+  # Solo corre si DATABRICKS_HOST / DATABRICKS_SP_CLIENT_ID están configuradas en el repo.
+  # Auth a Databricks vía OAuth M2M con un service principal (workspace fevm-malcoln-aws-stable).
   #
   # Para habilitar:
   #   gh variable set DATABRICKS_HOST -b "https://fevm-malcoln-aws-stable.cloud.databricks.com"
-  #   gh secret   set DATABRICKS_TOKEN -b "<PAT del workspace>"
+  #   gh variable set DATABRICKS_SP_CLIENT_ID -b "<application-id del SP>"
+  #   gh secret   set DATABRICKS_CLIENT_SECRET -b "<OAuth secret del SP>"
   # El runner self-hosted debe tener IP allowlisted en el workspace (IP ACL activo).
   bundle-validate:
     name: databricks bundle validate
@@ -57,7 +58,9 @@ jobs:
     if: vars.DATABRICKS_HOST != ''
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: databricks/setup-cli@main
