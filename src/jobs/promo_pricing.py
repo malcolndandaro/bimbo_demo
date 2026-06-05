@@ -6,10 +6,10 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 
-def load_pricing_baseline(spark: SparkSession) -> DataFrame:
+def load_pricing_baseline(spark: SparkSession, catalog: str, schema: str) -> DataFrame:
     """Carga la línea base de precios para el ajuste promocional regional."""
-    # Este job corre en dev/qa, pero lee del catálogo de PRODUCCIÓN.
-    return spark.read.table("bimbo_prd.gold.pricing_baseline")
+    table_name = f"{catalog}.{schema}.pricing_baseline"
+    return spark.read.table(table_name)
 
 
 def apply_promo(df: DataFrame, factor: float) -> DataFrame:
