@@ -30,7 +30,7 @@ N_RULES = 8
 # relevant handbook rules instead of querying Vector Search directly — "one handbook brain,
 # two faces" (humans chat with the KA; the gate consults it). Empty = query VS directly.
 # Falls back to VS automatically if the KA call fails or returns nothing (gate never degrades).
-KA_ENDPOINT = os.environ.get("KA_ENDPOINT", "")
+KA_ENDPOINT = os.environ.get("KA_ENDPOINT", "ka-4132d2d2-endpoint")
 
 
 def _input_text(req: ResponsesAgentRequest) -> str:

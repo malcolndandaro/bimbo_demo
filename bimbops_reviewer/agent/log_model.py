@@ -22,6 +22,7 @@ AGENT_FILE = str(pathlib.Path(__file__).with_name("agent.py"))
 CORE_FILE = str(pathlib.Path(__file__).with_name("review_core.py"))
 LLM_ENDPOINT = "databricks-claude-opus-4-8"
 VS_INDEX = "bimbo.dev.bimbops_handbook_rules_idx"
+KA_ENDPOINT = "ka-4132d2d2-endpoint"  # the reviewer consults this KA; VS index is the fallback
 
 mlflow.set_tracking_uri("databricks")  # log to the workspace, not local ./mlruns
 mlflow.set_registry_uri("databricks-uc")
@@ -46,7 +47,8 @@ with mlflow.start_run(run_name="grounded"):
         pip_requirements=["mlflow==3.12.0", "databricks-sdk", "pydantic>=2"],
         resources=[  # passthrough auth for the deployed endpoint — DO NOT skip
             DatabricksServingEndpoint(endpoint_name=LLM_ENDPOINT),
-            DatabricksVectorSearchIndex(index_name=VS_INDEX),
+            DatabricksServingEndpoint(endpoint_name=KA_ENDPOINT),  # reviewer consults the KA
+            DatabricksVectorSearchIndex(index_name=VS_INDEX),  # fallback retrieval
         ],
         registered_model_name=FULL_NAME,
     )
