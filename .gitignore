@@ -8,3 +8,6 @@ __pycache__/
 .envrc
 mlflow.db
 .venv-it/
+
+# editor
+.vscode/
