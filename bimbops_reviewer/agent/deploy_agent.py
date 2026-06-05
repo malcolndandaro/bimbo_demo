@@ -17,7 +17,7 @@ import mlflow
 from databricks import agents
 from mlflow.tracking import MlflowClient
 
-FULL_NAME = "bimbo_demo.dev.bimbops_reviewer"
+FULL_NAME = "bimbo.dev.bimbops_reviewer"
 ENDPOINT = "bimbops-reviewer"
 
 mlflow.set_tracking_uri("databricks")  # agents.deploy resolves the logged model via tracking

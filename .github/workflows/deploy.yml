@@ -4,7 +4,7 @@ name: deploy
 # → [manual gate: qa] → deploy qa → [manual gate: prod] → deploy prod.
 # The qa/prod gates are GitHub Environments with required reviewers — each promotion
 # pauses for a human approval (hand Roberto the button). "prod" is a sandbox schema
-# (bimbo_demo.prod), so the live promotion is safe to run in the demo.
+# (bimbo.prod), so the live promotion is safe to run in the demo.
 on:
   push:
     branches: [main]
@@ -77,5 +77,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: databricks/setup-cli@main
-      - name: Deploy bundle to prod (sandbox schema bimbo_demo.prod)
+      - name: Deploy bundle to prod (sandbox schema bimbo.prod)
         run: databricks bundle deploy -t prd

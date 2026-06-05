@@ -79,7 +79,7 @@ def retrieve_rules(query_text: str) -> list[dict]:
         from databricks.sdk import WorkspaceClient  # lazy
 
         res = WorkspaceClient().vector_search_indexes.query_index(
-            index_name="bimbo_demo.dev.bimbops_handbook_rules_idx",
+            index_name="bimbo.dev.bimbops_handbook_rules_idx",
             columns=cols,
             query_text=(query_text[:2000] or "coding standards"),
             num_results=8,

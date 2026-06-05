@@ -2,7 +2,7 @@
   "usage_tracking_config": { "enabled": true },
   "inference_table_config": {
     "enabled": true,
-    "catalog_name": "bimbo_demo",
+    "catalog_name": "bimbo",
     "schema_name": "dev",
     "table_name_prefix": "bimbops_reviewer"
   },

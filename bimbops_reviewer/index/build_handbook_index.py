@@ -2,8 +2,8 @@
 
 Parses the structured `### [RULE-ID]` rule blocks out of ../bimbops_handbook/*.md,
 writes one row per rule to a UC volume as JSONL, materializes
-`bimbo_demo.dev.bimbops_handbook_rules` (Change Data Feed on), and creates/syncs the
-Delta Sync index `bimbo_demo.dev.bimbops_handbook_rules_idx` on the `bimbops-vs`
+`bimbo.dev.bimbops_handbook_rules` (Change Data Feed on), and creates/syncs the
+Delta Sync index `bimbo.dev.bimbops_handbook_rules_idx` on the `bimbops-vs`
 endpoint with managed `databricks-gte-large-en` embeddings.
 
 Run:  DATABRICKS_AUTH_STORAGE=plaintext python bimbops_reviewer/index/build_handbook_index.py
@@ -30,7 +30,7 @@ from databricks.sdk.service.vectorsearch import (
     VectorIndexType,
 )
 
-CATALOG = "bimbo_demo"
+CATALOG = "bimbo"
 SCHEMA = "dev"
 TABLE = f"{CATALOG}.{SCHEMA}.bimbops_handbook_rules"
 INDEX = f"{CATALOG}.{SCHEMA}.bimbops_handbook_rules_idx"

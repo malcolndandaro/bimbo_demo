@@ -1,7 +1,7 @@
 """Log + register the BimbOps Reviewer (tracer) to Unity Catalog.
 
 Run:  DATABRICKS_AUTH_STORAGE=plaintext python bimbops_reviewer/agent/log_model.py
-Registers `bimbo_demo.dev.bimbops_reviewer` and moves the @prod alias to the new
+Registers `bimbo.dev.bimbops_reviewer` and moves the @prod alias to the new
 version. Validates the model loads + predicts locally before it's deployed.
 """
 
@@ -16,12 +16,12 @@ from mlflow.models.resources import (
 )
 from mlflow.tracking import MlflowClient
 
-FULL_NAME = "bimbo_demo.dev.bimbops_reviewer"
+FULL_NAME = "bimbo.dev.bimbops_reviewer"
 EXPERIMENT = "/Users/malcoln.dandaro@databricks.com/bimbops_reviewer/experiment"
 AGENT_FILE = str(pathlib.Path(__file__).with_name("agent.py"))
 CORE_FILE = str(pathlib.Path(__file__).with_name("review_core.py"))
 LLM_ENDPOINT = "databricks-claude-opus-4-8"
-VS_INDEX = "bimbo_demo.dev.bimbops_handbook_rules_idx"
+VS_INDEX = "bimbo.dev.bimbops_handbook_rules_idx"
 
 mlflow.set_tracking_uri("databricks")  # log to the workspace, not local ./mlruns
 mlflow.set_registry_uri("databricks-uc")

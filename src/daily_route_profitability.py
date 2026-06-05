@@ -10,7 +10,7 @@ from bakery.transforms import build_daily_route_profitability
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "bimbo_demo")
+dbutils.widgets.text("catalog", "bimbo")
 dbutils.widgets.text("schema", "dev")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")

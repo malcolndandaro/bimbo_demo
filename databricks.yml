@@ -12,7 +12,7 @@ variables:
     description: Schema dentro del catálogo (p. ej. dev/qa/prod).
   agent_model_version:
     description: >-
-      Versión del modelo UC bimbo_demo.dev.bimbops_reviewer a desplegar (config-only
+      Versión del modelo UC bimbo.dev.bimbops_reviewer a desplegar (config-only
       redeploy). `@prod` (default) = resolver el alias @prod; un número fija esa versión.
       Bump + `bundle deploy` + run del job de deploy reapunta el endpoint en sitio.
       NO usar "" — una variable vacía serializa a un elemento null en la lista de
@@ -24,17 +24,17 @@ targets:
     mode: development
     default: true
     workspace:
-      host: https://e2-demo-field-eng.cloud.databricks.com
+      host: https://fevm-malcoln-aws-stable.cloud.databricks.com
     variables:
-      catalog: bimbo_demo
+      catalog: bimbo
       schema: dev
 
   qa:
     mode: production
     workspace:
-      host: https://e2-demo-field-eng.cloud.databricks.com
+      host: https://fevm-malcoln-aws-stable.cloud.databricks.com
     variables:
-      catalog: bimbo_demo
+      catalog: bimbo
       schema: qa
     run_as:
       user_name: malcoln.dandaro@databricks.com   # En Bimbo: SP sp-bimbops-bakery-qa
@@ -42,9 +42,9 @@ targets:
   prd:
     mode: production
     workspace:
-      host: https://e2-demo-field-eng.cloud.databricks.com
+      host: https://fevm-malcoln-aws-stable.cloud.databricks.com
     variables:
-      catalog: bimbo_demo
+      catalog: bimbo
       schema: prod
     run_as:
       user_name: malcoln.dandaro@databricks.com   # En Bimbo: SP sp-bimbops-bakery-prd

@@ -1,6 +1,6 @@
 """Cost/usage + recent-traces view from the BimbOps Reviewer inference table (slice 10).
 
-Source: `bimbo_demo.dev.bimbops_reviewer_payload` (AI Gateway inference logging on the
+Source: `bimbo.dev.bimbops_reviewer_payload` (AI Gateway inference logging on the
 agent endpoint). Prints a Markdown summary: per-day reviews + latency + a token
 ESTIMATE, plus a recent-traces panel.
 
@@ -19,7 +19,7 @@ import time
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementState
 
-TABLE = "bimbo_demo.dev.bimbops_reviewer_payload"
+TABLE = "bimbo.dev.bimbops_reviewer_payload"
 USD_PER_1K_TOKENS = 0.009  # ILLUSTRATIVE blended rate — not real billing
 
 SUMMARY_SQL = f"""

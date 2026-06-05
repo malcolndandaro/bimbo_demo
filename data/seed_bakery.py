@@ -1,4 +1,4 @@
-"""Seed the bakery source tables (`fact_sales` + `dim_store`) for `bimbo_demo.<schema>`.
+"""Seed the bakery source tables (`fact_sales` + `dim_store`) for `bimbo.<schema>`.
 
 Closes the recovery gap documented in REBUILD.md: these are the pipeline INPUT tables
 (read by `src/daily_route_profitability.py`, asserted populated by `tests/`). They were
@@ -6,8 +6,8 @@ originally pre-seeded with no in-repo generator; this script regenerates them
 synthetically so they are recoverable from the repo on a shared, mutable workspace.
 
 Run locally via Databricks Connect serverless:
-    DATABRICKS_AUTH_STORAGE=plaintext python data/seed_bakery.py            # -> bimbo_demo.dev
-    BIMBO_SEED_SCHEMA=qa  python data/seed_bakery.py                        # -> bimbo_demo.qa
+    DATABRICKS_AUTH_STORAGE=plaintext python data/seed_bakery.py            # -> bimbo.dev
+    BIMBO_SEED_SCHEMA=qa  python data/seed_bakery.py                        # -> bimbo.qa
 or as a Databricks notebook/job task (uses the ambient `spark`).
 
 Idempotent: overwrites the tables. Synthetic data only — no PII, safe for a public repo.
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 
-CATALOG = os.environ.get("BIMBO_SEED_CATALOG", "bimbo_demo")
+CATALOG = os.environ.get("BIMBO_SEED_CATALOG", "bimbo")
 SCHEMA = os.environ.get("BIMBO_SEED_SCHEMA", "dev")
 N_STORES = int(os.environ.get("BIMBO_SEED_STORES", "20"))
 N_SALES = int(os.environ.get("BIMBO_SEED_SALES", "5000"))

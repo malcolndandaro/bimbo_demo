@@ -1,6 +1,6 @@
 """Serverless integration tests for the daily route-profitability pipeline (slice 07).
 
-Runs against bimbo_demo.dev via Databricks Connect serverless — exercises the SAME
+Runs against bimbo.dev via Databricks Connect serverless — exercises the SAME
 vendored transform the job uses, against real UC tables. Robust to the existing
 seeded data (asserts structure + invariants, not hardcoded row counts).
 """

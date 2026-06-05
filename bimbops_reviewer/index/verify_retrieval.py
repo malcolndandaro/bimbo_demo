@@ -14,7 +14,7 @@ import sys
 
 from databricks.sdk import WorkspaceClient
 
-INDEX = "bimbo_demo.dev.bimbops_handbook_rules_idx"
+INDEX = "bimbo.dev.bimbops_handbook_rules_idx"
 COLUMNS = ["rule_id", "title", "citation", "severity_hint"]
 
 CHECKS = [
